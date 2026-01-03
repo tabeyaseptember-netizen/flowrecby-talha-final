@@ -1,5 +1,6 @@
-import { Mic, Volume2, MicOff, AlertCircle, Info } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { useState, useEffect } from 'react';
+import { Mic, Volume2, MicOff, AlertCircle, Info, CheckCircle, XCircle } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useRecording, AudioSource } from '@/contexts/RecordingContext';
 import { cn } from '@/lib/utils';
 
@@ -12,8 +13,40 @@ const audioOptions: { id: AudioSource; label: string; icon: typeof Mic; descript
 
 export const AudioSelector = () => {
   const { settings, updateSettings } = useRecording();
+  const [micPermission, setMicPermission] = useState<'granted' | 'denied' | 'prompt' | 'unknown'>('unknown');
+
+  // Check microphone permission status
+  useEffect(() => {
+    const checkMicPermission = async () => {
+      try {
+        const result = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+        setMicPermission(result.state as 'granted' | 'denied' | 'prompt');
+        
+        result.addEventListener('change', () => {
+          setMicPermission(result.state as 'granted' | 'denied' | 'prompt');
+        });
+      } catch {
+        // Permissions API not supported
+        setMicPermission('unknown');
+      }
+    };
+    
+    checkMicPermission();
+  }, []);
 
   const showSystemAudioTip = settings.audioSource === 'system' || settings.audioSource === 'both';
+  const showMicTip = (settings.audioSource === 'mic' || settings.audioSource === 'both') && micPermission === 'denied';
+
+  // Test microphone to request permission
+  const testMicrophone = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach(track => track.stop());
+      setMicPermission('granted');
+    } catch {
+      setMicPermission('denied');
+    }
+  };
 
   return (
     <div className="space-y-3">
@@ -69,30 +102,81 @@ export const AudioSelector = () => {
         })}
       </div>
 
-      {/* System Audio Tip */}
-      {showSystemAudioTip && (
+      {/* System Audio Warning - Critical for user understanding */}
+      <AnimatePresence>
+        {showSystemAudioTip && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="overflow-hidden"
+          >
+            <div className="flex items-start gap-2 p-3 rounded-lg bg-warning/10 border border-warning/20">
+              <AlertCircle className="w-5 h-5 text-warning mt-0.5 shrink-0" />
+              <div className="text-xs">
+                <p className="font-semibold text-warning">⚠️ Important: System Audio Setup</p>
+                <ol className="text-warning/80 mt-1 space-y-1 list-decimal list-inside">
+                  <li>When screen picker appears, click <strong>"Share audio"</strong> checkbox</li>
+                  <li>For best results, select a <strong>Browser Tab</strong> (Chrome/Edge tabs work best)</li>
+                  <li>Full screen/window capture may not include audio on some browsers</li>
+                </ol>
+                <p className="text-warning/80 mt-2 italic">
+                  If you don't see the checkbox, your browser may not support system audio capture.
+                </p>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Microphone Permission Denied Warning */}
+      <AnimatePresence>
+        {showMicTip && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="overflow-hidden"
+          >
+            <div className="flex items-start gap-2 p-3 rounded-lg bg-destructive/10 border border-destructive/20">
+              <XCircle className="w-4 h-4 text-destructive mt-0.5 shrink-0" />
+              <div className="text-xs">
+                <p className="font-medium text-destructive">Microphone Access Blocked</p>
+                <p className="text-destructive/80 mt-1">
+                  Please allow microphone access in your browser settings, then refresh the page.
+                </p>
+                <button
+                  onClick={testMicrophone}
+                  className="mt-2 text-xs underline text-destructive hover:text-destructive/80"
+                >
+                  Try requesting permission again
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Microphone Status */}
+      {(settings.audioSource === 'mic' || settings.audioSource === 'both') && micPermission !== 'denied' && (
         <motion.div
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="flex items-start gap-2 p-3 rounded-lg bg-warning/10 border border-warning/20"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="flex items-center gap-2 p-2 rounded-lg bg-success/10 border border-success/20"
         >
-          <Info className="w-4 h-4 text-warning mt-0.5 shrink-0" />
-          <div className="text-xs">
-            <p className="font-medium text-warning">Important: System Audio Setup</p>
-            <p className="text-warning/80 mt-1">
-              When the screen picker appears, make sure to check the <strong>"Share audio"</strong> or <strong>"Share system audio"</strong> checkbox. 
-              For best results, select a <strong>Browser Tab</strong> as they reliably share audio.
-            </p>
-          </div>
+          <CheckCircle className="w-4 h-4 text-success" />
+          <span className="text-xs text-success">
+            {micPermission === 'granted' ? 'Microphone ready' : 'Microphone will be requested when recording starts'}
+          </span>
         </motion.div>
       )}
 
       {/* Audio Quality Info */}
       <div className="flex items-start gap-2 p-3 rounded-lg bg-muted/50">
-        <AlertCircle className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
+        <Info className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
         <div className="text-xs text-muted-foreground">
           <p>
-            <strong>Audio is processed with:</strong> Noise reduction, echo cancellation, and auto gain control for clearer recordings.
+            <strong>Audio processing:</strong> Noise reduction, echo cancellation, and auto gain control for clearer recordings.
           </p>
         </div>
       </div>
