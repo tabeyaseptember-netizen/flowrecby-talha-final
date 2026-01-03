@@ -1,4 +1,4 @@
-import { useState, useEffect, forwardRef } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Download, X, Smartphone } from 'lucide-react';
 import logo from '@/assets/logo.png';
@@ -18,7 +18,7 @@ declare global {
   }
 }
 
-export const PWAInstallPrompt = forwardRef<HTMLDivElement>((_, ref) => {
+export const PWAInstallPrompt = () => {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [showBanner, setShowBanner] = useState(false);
   const [isInstalled, setIsInstalled] = useState(false);
@@ -88,7 +88,6 @@ export const PWAInstallPrompt = forwardRef<HTMLDivElement>((_, ref) => {
   return (
     <AnimatePresence>
       <motion.div
-        ref={ref}
         initial={{ opacity: 0, y: 100 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: 100 }}
@@ -153,6 +152,4 @@ export const PWAInstallPrompt = forwardRef<HTMLDivElement>((_, ref) => {
       </motion.div>
     </AnimatePresence>
   );
-});
-
-PWAInstallPrompt.displayName = 'PWAInstallPrompt';
+};
