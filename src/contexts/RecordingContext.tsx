@@ -432,13 +432,23 @@ export const RecordingProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
       // Setup audio with proper mixing using AudioContext
       const audioContext = new AudioContext();
+      
+      // Resume AudioContext if suspended (required by some browsers)
+      if (audioContext.state === 'suspended') {
+        await audioContext.resume();
+        console.log('AudioContext resumed from suspended state');
+      }
+      
       const destination = audioContext.createMediaStreamDestination();
       
       let hasAudioTracks = false;
+      let hasSystemAudio = false;
 
       // System audio from display stream (only if system or both is selected)
       if (settings.audioSource === 'system' || settings.audioSource === 'both') {
         const systemAudioTracks = displayStream.getAudioTracks();
+        console.log('System audio tracks found:', systemAudioTracks.length);
+        
         if (systemAudioTracks.length > 0) {
           const systemStream = new MediaStream(systemAudioTracks);
           const systemSource = audioContext.createMediaStreamSource(systemStream);
@@ -450,13 +460,19 @@ export const RecordingProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           systemSource.connect(systemGain);
           systemGain.connect(destination);
           hasAudioTracks = true;
-          console.log('System audio connected');
-        } else {
-          console.warn('No system audio tracks available - user may not have shared audio');
+          hasSystemAudio = true;
+          console.log('✓ System audio connected successfully');
+          
           toast({
-            title: "System Audio Note",
-            description: "Make sure to check 'Share audio' when selecting screen/tab",
-            variant: "default",
+            title: "System Audio Active",
+            description: "Desktop audio is being recorded",
+          });
+        } else {
+          console.warn('No system audio tracks - user did not share audio');
+          toast({
+            title: "No System Audio",
+            description: "You didn't check 'Share audio'. Only screen video will be recorded.",
+            variant: "destructive",
           });
         }
       }
@@ -464,17 +480,19 @@ export const RecordingProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       // Microphone audio with enhanced noise reduction
       if (settings.audioSource === 'mic' || settings.audioSource === 'both') {
         try {
+          console.log('Requesting microphone access...');
           const micStream = await navigator.mediaDevices.getUserMedia({
             audio: {
               echoCancellation: true,
               noiseSuppression: true,
               autoGainControl: true,
               // Advanced constraints for better audio quality
-              sampleRate: 48000,
-              channelCount: 1,
+              sampleRate: { ideal: 48000 },
+              channelCount: { ideal: 1 },
             },
           });
           
+          console.log('Microphone access granted, tracks:', micStream.getAudioTracks().length);
           const micSource = audioContext.createMediaStreamSource(micStream);
           
           // Apply noise gate to reduce background hiss
@@ -507,16 +525,29 @@ export const RecordingProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           micGain.connect(destination);
           
           hasAudioTracks = true;
-          console.log('Microphone connected with noise reduction');
+          console.log('✓ Microphone connected with noise reduction');
+          
+          toast({
+            title: "Microphone Active",
+            description: "Your voice is being recorded",
+          });
         } catch (err) {
-          console.warn('Could not access microphone:', err);
+          console.error('Microphone access error:', err);
           toast({
             title: "Microphone Error",
-            description: "Could not access microphone",
+            description: err instanceof Error ? err.message : "Could not access microphone. Check browser permissions.",
             variant: "destructive",
           });
         }
       }
+      
+      // Log final audio status
+      console.log('Audio setup complete:', {
+        hasAudioTracks,
+        hasSystemAudio: hasSystemAudio || false,
+        audioContextState: audioContext.state,
+        destinationTracks: destination.stream.getAudioTracks().length
+      });
 
       // Add mixed audio track to canvas stream
       if (hasAudioTracks && settings.audioSource !== 'none') {
