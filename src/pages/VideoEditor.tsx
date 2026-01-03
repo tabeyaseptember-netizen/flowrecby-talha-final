@@ -370,7 +370,7 @@ const VideoEditor = () => {
     toast({ title: 'Filters reset' });
   };
   
-  // Export video with audio
+  // Export video with audio using real-time playback
   const exportVideo = async () => {
     if (!videoRef.current || !canvasRef.current) {
       toast({
@@ -396,44 +396,42 @@ const VideoEditor = () => {
       canvas.height = video.videoHeight || 1080;
       
       const frameRate = 30;
+      const startTime = trimState.startTime;
+      const endTime = trimState.endTime;
+      const totalDuration = endTime - startTime;
+      
+      // Capture canvas stream
       const canvasStream = canvas.captureStream(frameRate);
       
-      // Create a new video element to play the trimmed section for audio capture
-      const audioVideo = document.createElement('video');
-      audioVideo.src = videoState.url;
-      audioVideo.currentTime = trimState.startTime;
-      audioVideo.muted = false;
-      
-      // Try to capture audio from the video
-      let combinedStream: MediaStream;
+      // Create audio context and capture audio from video element
+      let audioContext: AudioContext | null = null;
+      let audioDestination: MediaStreamAudioDestinationNode | null = null;
       
       try {
-        // Create audio context to capture video's audio
-        const audioContext = new AudioContext();
-        const source = audioContext.createMediaElementSource(audioVideo);
-        const destination = audioContext.createMediaStreamDestination();
-        source.connect(destination);
-        source.connect(audioContext.destination); // Also play to speakers
+        audioContext = new AudioContext();
+        const source = audioContext.createMediaElementSource(video);
+        audioDestination = audioContext.createMediaStreamDestination();
+        source.connect(audioDestination);
+        source.connect(audioContext.destination); // Play to speakers too
         
-        // Combine video canvas stream with audio
-        const audioTrack = destination.stream.getAudioTracks()[0];
+        // Add audio track to canvas stream
+        const audioTrack = audioDestination.stream.getAudioTracks()[0];
         if (audioTrack) {
           canvasStream.addTrack(audioTrack);
+          console.log('Audio track added to export');
         }
-        combinedStream = canvasStream;
-      } catch (err) {
-        console.warn('Could not capture audio, exporting video only:', err);
-        combinedStream = canvasStream;
+      } catch (audioErr) {
+        console.warn('Could not setup audio capture:', audioErr);
       }
       
-      // Setup MediaRecorder with audio codec
+      // Setup MediaRecorder
       const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus') 
         ? 'video/webm;codecs=vp9,opus' 
         : MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')
         ? 'video/webm;codecs=vp8,opus'
         : 'video/webm';
       
-      const mediaRecorder = new MediaRecorder(combinedStream, { 
+      const mediaRecorder = new MediaRecorder(canvasStream, { 
         mimeType,
         videoBitsPerSecond: 5000000,
         audioBitsPerSecond: 128000,
@@ -444,71 +442,87 @@ const VideoEditor = () => {
         if (e.data.size > 0) chunks.push(e.data);
       };
       
-      const exportPromise = new Promise<Blob>((resolve, reject) => {
-        mediaRecorder.onstop = () => resolve(new Blob(chunks, { type: 'video/webm' }));
-        mediaRecorder.onerror = (e) => reject(e);
+      // Draw frame with filters and overlays
+      const drawFrame = (currentTime: number) => {
+        // Apply filter
+        ctx.filter = `brightness(${filter.brightness}%) contrast(${filter.contrast}%) saturate(${filter.saturation}%) hue-rotate(${filter.hue}deg) blur(${filter.blur}px) grayscale(${filter.grayscale}%)`;
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        ctx.filter = 'none';
+        
+        // Draw text overlays
+        textOverlays.forEach(text => {
+          if (currentTime >= text.startTime && currentTime <= text.endTime) {
+            ctx.save();
+            ctx.font = `bold ${text.fontSize}px system-ui, sans-serif`;
+            ctx.fillStyle = text.color;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+            ctx.shadowBlur = 4;
+            ctx.shadowOffsetX = 2;
+            ctx.shadowOffsetY = 2;
+            ctx.fillText(text.text, (text.x / 100) * canvas.width, (text.y / 100) * canvas.height);
+            ctx.restore();
+          }
+        });
+      };
+      
+      // Start real-time playback and recording
+      video.currentTime = startTime;
+      video.muted = false;
+      
+      await new Promise<void>((resolve) => {
+        video.onseeked = () => resolve();
       });
       
-      // Start recording and playing
       mediaRecorder.start(100);
       
-      // Render frames
-      const startTime = trimState.startTime;
-      const endTime = trimState.endTime;
-      const totalDuration = endTime - startTime;
-      const totalFrames = Math.ceil(totalDuration * frameRate);
+      // Animation loop for drawing frames
+      let animationId: number;
+      const animate = () => {
+        if (video.currentTime >= endTime || video.paused) {
+          return;
+        }
+        drawFrame(video.currentTime);
+        setExportProgress(((video.currentTime - startTime) / totalDuration) * 100);
+        animationId = requestAnimationFrame(animate);
+      };
       
-      video.currentTime = startTime;
-      video.muted = true;
+      // Play video and start animation loop
+      await video.play();
+      animate();
       
-      // Start playing audio video from trim start
-      audioVideo.currentTime = startTime;
-      try {
-        await audioVideo.play();
-      } catch (e) {
-        console.warn('Could not play audio:', e);
-      }
+      // Wait for video to reach end time or finish
+      const exportPromise = new Promise<Blob>((resolve, reject) => {
+        const checkEnd = () => {
+          if (video.currentTime >= endTime || video.ended) {
+            video.pause();
+            cancelAnimationFrame(animationId);
+            mediaRecorder.stop();
+          }
+        };
+        
+        video.addEventListener('timeupdate', checkEnd);
+        video.addEventListener('ended', checkEnd);
+        
+        mediaRecorder.onstop = () => {
+          video.removeEventListener('timeupdate', checkEnd);
+          video.removeEventListener('ended', checkEnd);
+          resolve(new Blob(chunks, { type: 'video/webm' }));
+        };
+        mediaRecorder.onerror = reject;
+      });
       
-      for (let i = 0; i < totalFrames; i++) {
-        await new Promise<void>((resolve) => {
-          const currentTime = startTime + (i / frameRate);
-          video.currentTime = currentTime;
-          
-          video.onseeked = () => {
-            // Apply filter
-            ctx.filter = `brightness(${filter.brightness}%) contrast(${filter.contrast}%) saturate(${filter.saturation}%) hue-rotate(${filter.hue}deg) blur(${filter.blur}px) grayscale(${filter.grayscale}%)`;
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            ctx.filter = 'none';
-            
-            // Draw text overlays
-            textOverlays.forEach(text => {
-              if (currentTime >= text.startTime && currentTime <= text.endTime) {
-                ctx.save();
-                ctx.font = `bold ${text.fontSize}px system-ui, sans-serif`;
-                ctx.fillStyle = text.color;
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                // Add text shadow for better visibility
-                ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
-                ctx.shadowBlur = 4;
-                ctx.shadowOffsetX = 2;
-                ctx.shadowOffsetY = 2;
-                ctx.fillText(text.text, (text.x / 100) * canvas.width, (text.y / 100) * canvas.height);
-                ctx.restore();
-              }
-            });
-            
-            setExportProgress(((i + 1) / totalFrames) * 100);
-            resolve();
-          };
-        });
-      }
-      
-      // Stop audio video
-      audioVideo.pause();
-      
-      mediaRecorder.stop();
       const blob = await exportPromise;
+      
+      // Cleanup audio context
+      if (audioContext) {
+        audioContext.close();
+      }
+      
+      // Reset video state
+      video.muted = true;
+      video.currentTime = startTime;
       
       // Download
       const url = URL.createObjectURL(blob);
@@ -532,7 +546,7 @@ const VideoEditor = () => {
       
       toast({
         title: 'Export complete',
-        description: 'Video saved and added to library',
+        description: 'Video saved with audio and added to library',
       });
     } catch (error) {
       console.error('Export error:', error);
