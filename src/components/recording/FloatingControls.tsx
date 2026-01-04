@@ -17,13 +17,15 @@ import {
   AlertCircle,
   Pencil,
   Sun,
-  Trash2
+  Trash2,
+  LayoutGrid
 } from 'lucide-react';
 import { useRecording } from '@/contexts/RecordingContext';
 import { useMediaSession } from '@/hooks/useMediaSession';
 import { useBackgroundStability } from '@/hooks/useBackgroundStability';
 import { useDocumentPiP } from './DocumentPiPController';
 import { ScreenAnnotationOverlay } from './ScreenAnnotationOverlay';
+import { FloatingCanvas } from './FloatingCanvas';
 import { cn } from '@/lib/utils';
 
 const formatDuration = (seconds: number) => {
@@ -64,6 +66,7 @@ export const FloatingControls = () => {
   // Drawing and zoom state
   const [isDrawingMode, setIsDrawingMode] = useState(false);
   const [isZoomMode, setIsZoomMode] = useState(false);
+  const [isCanvasOpen, setIsCanvasOpen] = useState(false);
   const [drawingColor, setDrawingColor] = useState('#ef4444');
   const [zoomPosition, setZoomPosition] = useState<{ x: number; y: number } | null>(null);
   const [clearTrigger, setClearTrigger] = useState(0);
@@ -91,16 +94,24 @@ export const FloatingControls = () => {
     onVisibilityChange: (visible) => setIsTabFocused(visible),
   });
 
-  // Toggle functions for drawing/zoom
+  // Toggle functions for drawing/zoom/canvas
   const toggleDrawingMode = useCallback(() => {
     setIsDrawingMode(prev => !prev);
     if (isZoomMode) setIsZoomMode(false);
-  }, [isZoomMode]);
+    if (isCanvasOpen) setIsCanvasOpen(false);
+  }, [isZoomMode, isCanvasOpen]);
 
   const toggleZoomMode = useCallback(() => {
     setIsZoomMode(prev => !prev);
     if (isDrawingMode) setIsDrawingMode(false);
-  }, [isDrawingMode]);
+    if (isCanvasOpen) setIsCanvasOpen(false);
+  }, [isDrawingMode, isCanvasOpen]);
+
+  const toggleCanvas = useCallback(() => {
+    setIsCanvasOpen(prev => !prev);
+    if (isDrawingMode) setIsDrawingMode(false);
+    if (isZoomMode) setIsZoomMode(false);
+  }, [isDrawingMode, isZoomMode]);
 
   const clearDrawings = useCallback(() => {
     setClearTrigger(prev => prev + 1);
@@ -128,6 +139,7 @@ export const FloatingControls = () => {
     isMicOn,
     isDrawingMode,
     isZoomMode,
+    isCanvasOpen,
     drawingColor,
     onPause: pauseRecording,
     onResume: resumeRecording,
@@ -137,6 +149,7 @@ export const FloatingControls = () => {
     onClose: () => {},
     onToggleDrawing: toggleDrawingMode,
     onToggleZoom: toggleZoomMode,
+    onToggleCanvas: toggleCanvas,
     onChangeDrawingColor: setDrawingColor,
     onClearDrawings: clearDrawings,
   });
@@ -209,6 +222,9 @@ export const FloatingControls = () => {
 
   return (
     <>
+      {/* Floating Canvas Popup */}
+      <FloatingCanvas isOpen={isCanvasOpen} onClose={() => setIsCanvasOpen(false)} />
+
       {/* Screen Annotation Overlay */}
       <ScreenAnnotationOverlay
         isDrawingMode={isDrawingMode}
@@ -357,6 +373,18 @@ export const FloatingControls = () => {
             <Trash2 className="w-4 h-4 text-muted-foreground" />
           </button>
         )}
+
+        {/* Canvas Popup Button */}
+        <button
+          onClick={toggleCanvas}
+          className={cn(
+            "p-2.5 rounded-xl transition-colors",
+            isCanvasOpen ? "bg-cyan-500/20 text-cyan-400" : "bg-secondary text-muted-foreground"
+          )}
+          title="Open Canvas for Drawing & Text"
+        >
+          <LayoutGrid className="w-4 h-4" />
+        </button>
 
         <div className="w-px h-6 bg-border" />
 
