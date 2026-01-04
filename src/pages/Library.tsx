@@ -292,25 +292,34 @@ const Library = () => {
                 className="w-full rounded-2xl shadow-2xl"
                 onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
                 onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
+                onDurationChange={(e) => setDuration(e.currentTarget.duration)}
+                onLoadedData={(e) => {
+                  const d = e.currentTarget.duration;
+                  if (isFinite(d) && d > 0) setDuration(d);
+                }}
               />
 
               {/* Controls bar */}
               <div className="mt-4 flex items-center justify-between gap-4 bg-card/80 backdrop-blur-sm rounded-xl p-3 border border-border">
                 {/* Duration display */}
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Clock className="w-4 h-4" />
-                  <span className="font-mono">
-                    {formatDuration(currentTime)} / {formatDuration(duration)}
-                  </span>
+                <div className="flex flex-col gap-0.5">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Clock className="w-4 h-4" />
+                    <span className="font-mono">
+                      {formatDuration(currentTime)} / {formatDuration(duration)}
+                    </span>
+                  </div>
+                  {playbackSpeed !== 1 && duration > 0 && (
+                    <div className="text-xs text-muted-foreground pl-6">
+                      At {playbackSpeed}x: {formatDuration(duration / playbackSpeed)}
+                    </div>
+                  )}
                 </div>
 
                 {/* Playback speed selector */}
                 <div className="flex items-center gap-2">
                   <Gauge className="w-4 h-4 text-muted-foreground" />
-                  <Select
-                    value={playbackSpeed.toString()}
-                    onValueChange={(v) => setPlaybackSpeed(parseFloat(v))}
-                  >
+                  <Select value={playbackSpeed.toString()} onValueChange={(v) => setPlaybackSpeed(parseFloat(v))}>
                     <SelectTrigger className="w-24 h-8">
                       <SelectValue />
                     </SelectTrigger>
