@@ -7,6 +7,7 @@ interface DocumentPiPControllerProps {
   isMicOn: boolean;
   isDrawingMode?: boolean;
   isZoomMode?: boolean;
+  isCanvasOpen?: boolean;
   drawingColor?: string;
   onPause: () => void;
   onResume: () => void;
@@ -16,6 +17,7 @@ interface DocumentPiPControllerProps {
   onClose: () => void;
   onToggleDrawing?: () => void;
   onToggleZoom?: () => void;
+  onToggleCanvas?: () => void;
   onChangeDrawingColor?: (color: string) => void;
   onClearDrawings?: () => void;
 }
@@ -199,6 +201,14 @@ const TrashIcon = () => (
   </svg>
 );
 
+const CanvasIcon = () => (
+  <svg style={styles.buttonIcon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+    <line x1="3" y1="9" x2="21" y2="9" />
+    <line x1="9" y1="21" x2="9" y2="9" />
+  </svg>
+);
+
 // Available drawing colors
 const DRAWING_COLORS = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#8b5cf6', '#ffffff'];
 
@@ -212,6 +222,7 @@ const PiPControlPanel = ({
   isMicOn,
   isDrawingMode = false,
   isZoomMode = false,
+  isCanvasOpen = false,
   drawingColor = '#ef4444',
   onPause,
   onResume,
@@ -220,6 +231,7 @@ const PiPControlPanel = ({
   onScreenshot,
   onToggleDrawing,
   onToggleZoom,
+  onToggleCanvas,
   onChangeDrawingColor,
   onClearDrawings,
 }: DocumentPiPControllerProps) => {
@@ -371,11 +383,25 @@ const PiPControlPanel = ({
             <SpotlightIcon />
           </button>
         )}
+
+        <div style={styles.divider} />
+
+        {/* Canvas Popup Tool */}
+        {onToggleCanvas && (
+          <button
+            onClick={onToggleCanvas}
+            style={styles.button('#06b6d4', isCanvasOpen)}
+            title="Open Canvas"
+          >
+            <CanvasIcon />
+          </button>
+        )}
       </div>
 
       {/* Compact Footer */}
       <div style={styles.footer}>
-        {isDrawingMode ? 'Draw on screen • ESC to clear' : 
+        {isCanvasOpen ? 'Canvas open • Draw or add text' :
+         isDrawingMode ? 'Draw on screen • ESC to clear' : 
          isZoomMode ? 'Click to spotlight' : 'Tools ready'}
       </div>
     </div>
@@ -392,6 +418,7 @@ export const DocumentPiPController = ({
   isMicOn,
   isDrawingMode = false,
   isZoomMode = false,
+  isCanvasOpen = false,
   drawingColor = '#ef4444',
   onPause,
   onResume,
@@ -401,6 +428,7 @@ export const DocumentPiPController = ({
   onClose,
   onToggleDrawing,
   onToggleZoom,
+  onToggleCanvas,
   onChangeDrawingColor,
   onClearDrawings,
 }: DocumentPiPControllerProps) => {
@@ -489,6 +517,7 @@ export const DocumentPiPController = ({
         isMicOn={isMicOn}
         isDrawingMode={isDrawingMode}
         isZoomMode={isZoomMode}
+        isCanvasOpen={isCanvasOpen}
         drawingColor={drawingColor}
         onPause={onPause}
         onResume={onResume}
@@ -501,11 +530,12 @@ export const DocumentPiPController = ({
         onClose={closePiP}
         onToggleDrawing={onToggleDrawing}
         onToggleZoom={onToggleZoom}
+        onToggleCanvas={onToggleCanvas}
         onChangeDrawingColor={onChangeDrawingColor}
         onClearDrawings={onClearDrawings}
       />
     );
-  }, [duration, isPaused, isMicOn, isDrawingMode, isZoomMode, drawingColor, isPipOpen, onPause, onResume, onStop, onToggleMic, onScreenshot, onToggleDrawing, onToggleZoom, onChangeDrawingColor, onClearDrawings]);
+  }, [duration, isPaused, isMicOn, isDrawingMode, isZoomMode, isCanvasOpen, drawingColor, isPipOpen, onPause, onResume, onStop, onToggleMic, onScreenshot, onToggleDrawing, onToggleZoom, onToggleCanvas, onChangeDrawingColor, onClearDrawings]);
 
   // Auto-open PiP on mount if supported (with retry)
   useEffect(() => {
