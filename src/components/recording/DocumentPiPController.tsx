@@ -1,7 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { createRoot, Root } from 'react-dom/client';
-import { Pause, Play, Square, Mic, MicOff, Camera, X } from 'lucide-react';
-import { cn } from '@/lib/utils';
 
 interface DocumentPiPControllerProps {
   duration: number;
@@ -21,8 +19,138 @@ const formatDuration = (seconds: number) => {
   return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
 };
 
+// Inline styles for offline support - no external CSS dependencies
+const styles = {
+  container: {
+    width: '100%',
+    height: '100%',
+    background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)',
+    color: '#fff',
+    display: 'flex',
+    flexDirection: 'column' as const,
+    fontFamily: 'system-ui, -apple-system, sans-serif',
+    userSelect: 'none' as const,
+    overflow: 'hidden',
+  },
+  header: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: '6px 10px',
+    background: 'linear-gradient(90deg, #0f3460 0%, #16213e 100%)',
+    borderBottom: '1px solid rgba(255,255,255,0.1)',
+  },
+  timerSection: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+  },
+  recordingDot: (isPaused: boolean) => ({
+    width: '8px',
+    height: '8px',
+    borderRadius: '50%',
+    background: isPaused ? '#eab308' : '#ef4444',
+    boxShadow: isPaused ? 'none' : '0 0 8px #ef4444',
+    animation: isPaused ? 'none' : 'pulse 1.5s infinite',
+  }),
+  timer: {
+    fontFamily: 'monospace',
+    fontSize: '14px',
+    fontWeight: 'bold',
+    letterSpacing: '1px',
+  },
+  status: (isPaused: boolean) => ({
+    fontSize: '9px',
+    fontWeight: '600',
+    padding: '2px 6px',
+    borderRadius: '4px',
+    background: isPaused ? 'rgba(234,179,8,0.2)' : 'rgba(239,68,68,0.2)',
+    color: isPaused ? '#fbbf24' : '#f87171',
+  }),
+  controls: {
+    flex: 1,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '4px',
+    padding: '6px 8px',
+  },
+  button: (color: string, isActive: boolean = true) => ({
+    width: '32px',
+    height: '32px',
+    borderRadius: '8px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    border: `1.5px solid ${color}`,
+    background: `${color}20`,
+    color: isActive ? color : '#6b7280',
+    cursor: 'pointer',
+    transition: 'transform 0.15s, background 0.15s',
+  }),
+  buttonIcon: {
+    width: '14px',
+    height: '14px',
+  },
+  footer: {
+    padding: '4px 8px',
+    textAlign: 'center' as const,
+    fontSize: '8px',
+    color: '#6b7280',
+    borderTop: '1px solid rgba(255,255,255,0.05)',
+    background: 'rgba(0,0,0,0.2)',
+  },
+};
+
+// SVG Icons as inline components for offline support
+const PauseIcon = () => (
+  <svg style={styles.buttonIcon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="6" y="4" width="4" height="16" />
+    <rect x="14" y="4" width="4" height="16" />
+  </svg>
+);
+
+const PlayIcon = () => (
+  <svg style={styles.buttonIcon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <polygon points="5,3 19,12 5,21" fill="currentColor" />
+  </svg>
+);
+
+const StopIcon = () => (
+  <svg style={styles.buttonIcon} viewBox="0 0 24 24" fill="currentColor">
+    <rect x="4" y="4" width="16" height="16" rx="2" />
+  </svg>
+);
+
+const CameraIcon = () => (
+  <svg style={styles.buttonIcon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+    <circle cx="12" cy="13" r="4" />
+  </svg>
+);
+
+const MicIcon = () => (
+  <svg style={styles.buttonIcon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+    <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+    <line x1="12" y1="19" x2="12" y2="23" />
+    <line x1="8" y1="23" x2="16" y2="23" />
+  </svg>
+);
+
+const MicOffIcon = () => (
+  <svg style={styles.buttonIcon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <line x1="1" y1="1" x2="23" y2="23" />
+    <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6" />
+    <path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23" />
+    <line x1="12" y1="19" x2="12" y2="23" />
+    <line x1="8" y1="23" x2="16" y2="23" />
+  </svg>
+);
+
 /**
- * PiP Control Panel - The actual UI rendered inside the Document PiP window
+ * PiP Control Panel - Compact UI rendered inside the Document PiP window
+ * Uses inline styles for complete offline support
  */
 const PiPControlPanel = ({
   duration,
@@ -33,94 +161,72 @@ const PiPControlPanel = ({
   onStop,
   onToggleMic,
   onScreenshot,
-  onClose,
 }: DocumentPiPControllerProps) => {
   return (
-    <div className="w-full h-full bg-[#1a1a2e] text-white flex flex-col select-none">
-      {/* Header with timer */}
-      <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-[#16213e] to-[#0f3460]">
-        <div className="flex items-center gap-3">
-          {/* Recording indicator */}
-          <div className="relative">
-            <div 
-              className={cn(
-                "w-3 h-3 rounded-full",
-                isPaused ? "bg-yellow-500" : "bg-red-500"
-              )}
-            />
-            {!isPaused && (
-              <div className="absolute inset-0 w-3 h-3 rounded-full bg-red-500 animate-ping" />
-            )}
-          </div>
-          
-          {/* Timer */}
-          <span className="font-mono text-2xl font-bold tracking-wider">
-            {formatDuration(duration)}
-          </span>
-        </div>
+    <div style={styles.container}>
+      {/* Inline keyframe animation */}
+      <style>{`
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.4; }
+        }
+        button:hover { transform: scale(1.08); }
+        button:active { transform: scale(0.95); }
+      `}</style>
 
-        {/* Status */}
-        <span className={cn(
-          "text-sm font-medium px-2 py-0.5 rounded",
-          isPaused ? "bg-yellow-500/20 text-yellow-400" : "bg-red-500/20 text-red-400"
-        )}>
+      {/* Compact Header with timer */}
+      <div style={styles.header}>
+        <div style={styles.timerSection}>
+          <div style={styles.recordingDot(isPaused)} />
+          <span style={styles.timer}>{formatDuration(duration)}</span>
+        </div>
+        <span style={styles.status(isPaused)}>
           {isPaused ? 'PAUSED' : 'REC'}
         </span>
       </div>
 
-      {/* Controls */}
-      <div className="flex-1 flex items-center justify-center gap-3 px-4 py-3">
+      {/* Compact Controls */}
+      <div style={styles.controls}>
         {/* Pause/Resume */}
         <button
           onClick={isPaused ? onResume : onPause}
-          className={cn(
-            "w-12 h-12 rounded-xl flex items-center justify-center transition-all",
-            "hover:scale-105 active:scale-95",
-            isPaused 
-              ? "bg-green-500/20 border-2 border-green-500 text-green-400" 
-              : "bg-yellow-500/20 border-2 border-yellow-500 text-yellow-400"
-          )}
+          style={styles.button(isPaused ? '#22c55e' : '#eab308', true)}
           title={isPaused ? "Resume" : "Pause"}
         >
-          {isPaused ? <Play className="w-5 h-5" /> : <Pause className="w-5 h-5" />}
+          {isPaused ? <PlayIcon /> : <PauseIcon />}
         </button>
 
         {/* Stop */}
         <button
           onClick={onStop}
-          className="w-12 h-12 rounded-xl flex items-center justify-center bg-red-500/20 border-2 border-red-500 text-red-400 hover:scale-105 active:scale-95 transition-all"
-          title="Stop Recording"
+          style={styles.button('#ef4444', true)}
+          title="Stop"
         >
-          <Square className="w-5 h-5 fill-current" />
+          <StopIcon />
         </button>
 
         {/* Screenshot */}
         <button
           onClick={onScreenshot}
-          className="w-12 h-12 rounded-xl flex items-center justify-center bg-blue-500/20 border-2 border-blue-500 text-blue-400 hover:scale-105 active:scale-95 transition-all"
+          style={styles.button('#3b82f6', true)}
           title="Screenshot"
         >
-          <Camera className="w-5 h-5" />
+          <CameraIcon />
         </button>
 
         {/* Mic Toggle */}
         <button
           onClick={onToggleMic}
-          className={cn(
-            "w-12 h-12 rounded-xl flex items-center justify-center transition-all hover:scale-105 active:scale-95",
-            isMicOn 
-              ? "bg-green-500/20 border-2 border-green-500 text-green-400" 
-              : "bg-gray-500/20 border-2 border-gray-500 text-gray-400"
-          )}
-          title={isMicOn ? "Mute Mic" : "Unmute Mic"}
+          style={styles.button(isMicOn ? '#22c55e' : '#6b7280', true)}
+          title={isMicOn ? "Mute" : "Unmute"}
         >
-          {isMicOn ? <Mic className="w-5 h-5" /> : <MicOff className="w-5 h-5" />}
+          {isMicOn ? <MicIcon /> : <MicOffIcon />}
         </button>
       </div>
 
-      {/* Footer hint */}
-      <div className="px-4 py-2 text-center text-xs text-gray-500 border-t border-gray-700">
-        This window stays visible across apps
+      {/* Compact Footer */}
+      <div style={styles.footer}>
+        Always on top
       </div>
     </div>
   );
@@ -128,15 +234,7 @@ const PiPControlPanel = ({
 
 /**
  * DocumentPiPController - Uses Document Picture-in-Picture API
- * 
- * The Document PiP API allows creating an always-on-top mini window
- * with FULLY INTERACTIVE HTML content. Unlike video PiP, users can
- * click buttons and interact with the controls even when on other apps.
- * 
- * Browser Support:
- * - Chrome 116+ (full support)
- * - Edge 116+ (full support)
- * - Safari/Firefox: Falls back to regular PiP or floating controls
+ * Compact size with full offline styling support
  */
 export const DocumentPiPController = ({
   duration,
@@ -165,35 +263,39 @@ export const DocumentPiPController = ({
     }
   }, []);
 
-  // Open Document PiP window
+  // Open Document PiP window - COMPACT SIZE
   const openPiP = useCallback(async () => {
     if (!isPipSupported) return;
 
     try {
       // @ts-ignore - Document PiP API
       const pipWindow = await window.documentPictureInPicture.requestWindow({
-        width: 320,
-        height: 160,
+        width: 220,  // Compact width
+        height: 100, // Compact height
       });
 
       pipWindowRef.current = pipWindow;
       setIsPipOpen(true);
 
-      // Copy styles to PiP window
-      const styleSheets = document.querySelectorAll('link[rel="stylesheet"], style');
-      styleSheets.forEach((styleSheet) => {
-        pipWindow.document.head.appendChild(styleSheet.cloneNode(true));
-      });
-
-      // Add base styles
+      // Add base styles directly (no external CSS needed)
       const baseStyle = pipWindow.document.createElement('style');
       baseStyle.textContent = `
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: system-ui, -apple-system, sans-serif; overflow: hidden; }
-        @keyframes ping {
-          75%, 100% { transform: scale(2); opacity: 0; }
+        * { 
+          box-sizing: border-box; 
+          margin: 0; 
+          padding: 0; 
         }
-        .animate-ping { animation: ping 1s cubic-bezier(0, 0, 0.2, 1) infinite; }
+        html, body { 
+          width: 100%;
+          height: 100%;
+          overflow: hidden;
+          background: #1a1a2e;
+        }
+        button {
+          border: none;
+          outline: none;
+          cursor: pointer;
+        }
       `;
       pipWindow.document.head.appendChild(baseStyle);
 
