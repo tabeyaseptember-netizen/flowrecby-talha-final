@@ -1,13 +1,16 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { createRoot, Root } from 'react-dom/client';
 
+interface CanvasOverlayCallback {
+  (imageData: string, width: number, height: number): void;
+}
+
 interface DocumentPiPControllerProps {
   duration: number;
   isPaused: boolean;
   isMicOn: boolean;
   isDrawingMode?: boolean;
   isZoomMode?: boolean;
-  isCanvasOpen?: boolean;
   drawingColor?: string;
   onPause: () => void;
   onResume: () => void;
@@ -17,9 +20,9 @@ interface DocumentPiPControllerProps {
   onClose: () => void;
   onToggleDrawing?: () => void;
   onToggleZoom?: () => void;
-  onToggleCanvas?: () => void;
   onChangeDrawingColor?: (color: string) => void;
   onClearDrawings?: () => void;
+  onSaveCanvasOverlay?: CanvasOverlayCallback;
 }
 
 const formatDuration = (seconds: number) => {
@@ -28,7 +31,11 @@ const formatDuration = (seconds: number) => {
   return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
 };
 
-// Inline styles for offline support - no external CSS dependencies
+// Canvas colors and brush sizes
+const CANVAS_COLORS = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#8b5cf6', '#ffffff', '#000000'];
+const BRUSH_SIZES = [2, 4, 8, 12];
+
+// Inline styles for offline support
 const styles = {
   container: {
     width: '100%',
@@ -77,7 +84,6 @@ const styles = {
     color: isPaused ? '#fbbf24' : '#f87171',
   }),
   controls: {
-    flex: 1,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -123,9 +129,51 @@ const styles = {
     background: 'rgba(255,255,255,0.15)',
     margin: '0 2px',
   },
+  // Canvas styles
+  canvasContainer: {
+    flex: 1,
+    display: 'flex',
+    flexDirection: 'column' as const,
+    background: '#fff',
+    overflow: 'hidden',
+  },
+  canvasToolbar: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '4px',
+    padding: '4px 6px',
+    background: '#1a1a2e',
+    borderBottom: '1px solid rgba(255,255,255,0.1)',
+    flexWrap: 'wrap' as const,
+  },
+  canvasToolButton: (isActive: boolean) => ({
+    width: '22px',
+    height: '22px',
+    borderRadius: '4px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: isActive ? '#3b82f6' : 'rgba(255,255,255,0.1)',
+    color: isActive ? '#fff' : '#9ca3af',
+    cursor: 'pointer',
+    border: 'none',
+  }),
+  canvasColorButton: (color: string, isSelected: boolean) => ({
+    width: '14px',
+    height: '14px',
+    borderRadius: '50%',
+    background: color,
+    border: isSelected ? '2px solid #fff' : '1px solid rgba(255,255,255,0.3)',
+    cursor: 'pointer',
+  }),
+  canvas: {
+    flex: 1,
+    cursor: 'crosshair',
+    display: 'block',
+  },
 };
 
-// SVG Icons as inline components for offline support
+// SVG Icons
 const PauseIcon = () => (
   <svg style={styles.buttonIcon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
     <rect x="6" y="4" width="4" height="16" />
@@ -209,12 +257,54 @@ const CanvasIcon = () => (
   </svg>
 );
 
-// Available drawing colors
+const TextIcon = () => (
+  <svg style={{ width: '10px', height: '10px' }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="4 7 4 4 20 4 20 7" />
+    <line x1="9" y1="20" x2="15" y2="20" />
+    <line x1="12" y1="4" x2="12" y2="20" />
+  </svg>
+);
+
+const DrawIcon = () => (
+  <svg style={{ width: '10px', height: '10px' }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 19l7-7 3 3-7 7-3-3z" />
+    <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z" />
+  </svg>
+);
+
+const FilmIcon = () => (
+  <svg style={{ width: '10px', height: '10px' }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18" />
+    <line x1="7" y1="2" x2="7" y2="22" />
+    <line x1="17" y1="2" x2="17" y2="22" />
+    <line x1="2" y1="12" x2="22" y2="12" />
+  </svg>
+);
+
+const DownloadIcon = () => (
+  <svg style={{ width: '10px', height: '10px' }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+    <polyline points="7 10 12 15 17 10" />
+    <line x1="12" y1="15" x2="12" y2="3" />
+  </svg>
+);
+
+const CloseIcon = () => (
+  <svg style={{ width: '10px', height: '10px' }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <line x1="18" y1="6" x2="6" y2="18" />
+    <line x1="6" y1="6" x2="18" y2="18" />
+  </svg>
+);
+
+// Available drawing colors for screen annotation
 const DRAWING_COLORS = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#8b5cf6', '#ffffff'];
 
+interface PiPControlPanelProps extends DocumentPiPControllerProps {
+  pipWindow: Window | null;
+}
+
 /**
- * PiP Control Panel - Compact UI rendered inside the Document PiP window
- * Uses inline styles for complete offline support
+ * PiP Control Panel with Embedded Canvas
  */
 const PiPControlPanel = ({
   duration,
@@ -222,7 +312,6 @@ const PiPControlPanel = ({
   isMicOn,
   isDrawingMode = false,
   isZoomMode = false,
-  isCanvasOpen = false,
   drawingColor = '#ef4444',
   onPause,
   onResume,
@@ -231,11 +320,157 @@ const PiPControlPanel = ({
   onScreenshot,
   onToggleDrawing,
   onToggleZoom,
-  onToggleCanvas,
   onChangeDrawingColor,
   onClearDrawings,
-}: DocumentPiPControllerProps) => {
+  onSaveCanvasOverlay,
+  pipWindow,
+}: PiPControlPanelProps) => {
   const [showColorPicker, setShowColorPicker] = useState(false);
+  const [isCanvasOpen, setIsCanvasOpen] = useState(false);
+  
+  // Canvas state
+  const [canvasTool, setCanvasTool] = useState<'draw' | 'text'>('draw');
+  const [canvasColor, setCanvasColor] = useState('#ef4444');
+  const [brushSize, setBrushSize] = useState(4);
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [textInput, setTextInput] = useState('');
+  const [textPosition, setTextPosition] = useState<{ x: number; y: number } | null>(null);
+  
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  // Resize PiP window when canvas opens/closes
+  useEffect(() => {
+    if (!pipWindow) return;
+    
+    try {
+      if (isCanvasOpen) {
+        pipWindow.resizeTo(320, 350);
+      } else {
+        pipWindow.resizeTo(260, 90);
+      }
+    } catch (e) {
+      // Ignore resize errors
+    }
+  }, [isCanvasOpen, pipWindow]);
+
+  // Initialize canvas when opened
+  useEffect(() => {
+    if (!isCanvasOpen) return;
+    
+    // Small delay to ensure canvas is in DOM
+    const timer = setTimeout(() => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }, 50);
+    
+    return () => clearTimeout(timer);
+  }, [isCanvasOpen]);
+
+  // Drawing handlers
+  const handleMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (canvasTool !== 'draw') {
+      // Handle text placement
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      setTextPosition({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+      return;
+    }
+    
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.strokeStyle = canvasColor;
+    ctx.lineWidth = brushSize;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    
+    setIsDrawing(true);
+  }, [canvasTool, canvasColor, brushSize]);
+
+  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!isDrawing || canvasTool !== 'draw') return;
+    
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    
+    ctx.lineTo(x, y);
+    ctx.stroke();
+  }, [isDrawing, canvasTool]);
+
+  const handleMouseUp = useCallback(() => {
+    setIsDrawing(false);
+  }, []);
+
+  const addText = useCallback(() => {
+    if (!textPosition || !textInput.trim()) return;
+    
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    
+    ctx.font = '16px Arial, sans-serif';
+    ctx.fillStyle = canvasColor;
+    ctx.fillText(textInput, textPosition.x, textPosition.y);
+    
+    setTextInput('');
+    setTextPosition(null);
+  }, [textPosition, textInput, canvasColor]);
+
+  const clearCanvas = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    setTextPosition(null);
+    setTextInput('');
+  }, []);
+
+  const downloadCanvas = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    
+    const link = document.createElement('a');
+    link.download = `drawing-${Date.now()}.png`;
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+  }, []);
+
+  const saveToVideo = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !onSaveCanvasOverlay) return;
+    
+    const imageData = canvas.toDataURL('image/png');
+    onSaveCanvasOverlay(imageData, canvas.width, canvas.height);
+  }, [onSaveCanvasOverlay]);
 
   return (
     <div style={styles.container}>
@@ -249,7 +484,7 @@ const PiPControlPanel = ({
         button:active { transform: scale(0.95); }
       `}</style>
 
-      {/* Compact Header with timer */}
+      {/* Header with timer */}
       <div style={styles.header}>
         <div style={styles.timerSection}>
           <div style={styles.recordingDot(isPaused)} />
@@ -260,7 +495,7 @@ const PiPControlPanel = ({
         </span>
       </div>
 
-      {/* Compact Controls */}
+      {/* Main Controls */}
       <div style={styles.controls}>
         {/* Pause/Resume */}
         <button
@@ -325,7 +560,6 @@ const PiPControlPanel = ({
               <div style={styles.colorDot(drawingColor)} />
             </button>
             
-            {/* Color picker dropdown */}
             {showColorPicker && (
               <div style={{
                 position: 'absolute',
@@ -386,23 +620,165 @@ const PiPControlPanel = ({
 
         <div style={styles.divider} />
 
-        {/* Canvas Popup Tool */}
-        {onToggleCanvas && (
-          <button
-            onClick={onToggleCanvas}
-            style={styles.button('#06b6d4', isCanvasOpen)}
-            title="Open Canvas"
-          >
-            <CanvasIcon />
-          </button>
-        )}
+        {/* Canvas Toggle - Opens embedded canvas */}
+        <button
+          onClick={() => setIsCanvasOpen(!isCanvasOpen)}
+          style={styles.button('#06b6d4', isCanvasOpen)}
+          title={isCanvasOpen ? "Close Canvas" : "Open Canvas"}
+        >
+          <CanvasIcon />
+        </button>
       </div>
 
-      {/* Compact Footer */}
+      {/* Embedded Canvas */}
+      {isCanvasOpen && (
+        <div style={styles.canvasContainer}>
+          {/* Canvas Toolbar */}
+          <div style={styles.canvasToolbar}>
+            {/* Tool selection */}
+            <button
+              onClick={() => setCanvasTool('draw')}
+              style={styles.canvasToolButton(canvasTool === 'draw')}
+              title="Draw"
+            >
+              <DrawIcon />
+            </button>
+            <button
+              onClick={() => setCanvasTool('text')}
+              style={styles.canvasToolButton(canvasTool === 'text')}
+              title="Text"
+            >
+              <TextIcon />
+            </button>
+
+            <div style={{ width: '1px', height: '14px', background: 'rgba(255,255,255,0.2)', margin: '0 2px' }} />
+
+            {/* Colors */}
+            {CANVAS_COLORS.map(color => (
+              <button
+                key={color}
+                onClick={() => setCanvasColor(color)}
+                style={styles.canvasColorButton(color, canvasColor === color)}
+                title={color}
+              />
+            ))}
+
+            <div style={{ width: '1px', height: '14px', background: 'rgba(255,255,255,0.2)', margin: '0 2px' }} />
+
+            {/* Brush sizes */}
+            {BRUSH_SIZES.map(size => (
+              <button
+                key={size}
+                onClick={() => setBrushSize(size)}
+                style={{
+                  ...styles.canvasToolButton(brushSize === size),
+                  width: '18px',
+                  height: '18px',
+                }}
+                title={`${size}px`}
+              >
+                <div style={{
+                  width: Math.min(size, 8),
+                  height: Math.min(size, 8),
+                  borderRadius: '50%',
+                  background: 'currentColor',
+                }} />
+              </button>
+            ))}
+
+            <div style={{ width: '1px', height: '14px', background: 'rgba(255,255,255,0.2)', margin: '0 2px' }} />
+
+            {/* Actions */}
+            <button
+              onClick={clearCanvas}
+              style={styles.canvasToolButton(false)}
+              title="Clear"
+            >
+              <TrashIcon />
+            </button>
+            <button
+              onClick={downloadCanvas}
+              style={styles.canvasToolButton(false)}
+              title="Download"
+            >
+              <DownloadIcon />
+            </button>
+            {onSaveCanvasOverlay && (
+              <button
+                onClick={saveToVideo}
+                style={{ ...styles.canvasToolButton(false), background: 'rgba(34, 197, 94, 0.3)' }}
+                title="Save to Video"
+              >
+                <FilmIcon />
+              </button>
+            )}
+            <button
+              onClick={() => setIsCanvasOpen(false)}
+              style={{ ...styles.canvasToolButton(false), marginLeft: 'auto' }}
+              title="Close Canvas"
+            >
+              <CloseIcon />
+            </button>
+          </div>
+
+          {/* Canvas Element */}
+          <div style={{ position: 'relative', flex: 1 }}>
+            <canvas
+              ref={canvasRef}
+              width={300}
+              height={200}
+              onMouseDown={handleMouseDown}
+              onMouseMove={handleMouseMove}
+              onMouseUp={handleMouseUp}
+              onMouseLeave={handleMouseUp}
+              style={{
+                ...styles.canvas,
+                width: '100%',
+                height: '100%',
+                cursor: canvasTool === 'draw' ? 'crosshair' : 'text',
+              }}
+            />
+
+            {/* Text Input */}
+            {textPosition && (
+              <input
+                type="text"
+                value={textInput}
+                onChange={(e) => setTextInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') addText();
+                  if (e.key === 'Escape') {
+                    setTextPosition(null);
+                    setTextInput('');
+                  }
+                }}
+                onBlur={addText}
+                autoFocus
+                style={{
+                  position: 'absolute',
+                  left: textPosition.x,
+                  top: textPosition.y - 10,
+                  background: 'rgba(0,0,0,0.8)',
+                  border: '1px solid #3b82f6',
+                  borderRadius: '4px',
+                  color: canvasColor,
+                  padding: '2px 4px',
+                  fontSize: '14px',
+                  outline: 'none',
+                  minWidth: '60px',
+                }}
+                placeholder="Type..."
+              />
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Footer */}
       <div style={styles.footer}>
-        {isCanvasOpen ? 'Canvas open • Draw or add text' :
+        {isCanvasOpen ? 'Draw or type on canvas • Works across all screens!' :
          isDrawingMode ? 'Draw on screen • ESC to clear' : 
-         isZoomMode ? 'Click to spotlight' : 'Tools ready'}
+         isZoomMode ? 'Click to spotlight' : 'Click Canvas icon to draw anywhere'}
       </div>
     </div>
   );
@@ -410,7 +786,6 @@ const PiPControlPanel = ({
 
 /**
  * DocumentPiPController - Uses Document Picture-in-Picture API
- * Compact size with full offline styling support
  */
 export const DocumentPiPController = ({
   duration,
@@ -418,7 +793,6 @@ export const DocumentPiPController = ({
   isMicOn,
   isDrawingMode = false,
   isZoomMode = false,
-  isCanvasOpen = false,
   drawingColor = '#ef4444',
   onPause,
   onResume,
@@ -428,9 +802,9 @@ export const DocumentPiPController = ({
   onClose,
   onToggleDrawing,
   onToggleZoom,
-  onToggleCanvas,
   onChangeDrawingColor,
   onClearDrawings,
+  onSaveCanvasOverlay,
 }: DocumentPiPControllerProps) => {
   const pipWindowRef = useRef<Window | null>(null);
   const rootRef = useRef<Root | null>(null);
@@ -448,21 +822,21 @@ export const DocumentPiPController = ({
     }
   }, []);
 
-  // Open Document PiP window - COMPACT SIZE
+  // Open Document PiP window
   const openPiP = useCallback(async () => {
     if (!isPipSupported) return;
 
     try {
       // @ts-ignore - Document PiP API
       const pipWindow = await window.documentPictureInPicture.requestWindow({
-        width: 260,  // Slightly wider for new tools
-        height: 90,  // Compact height
+        width: 260,
+        height: 90,
       });
 
       pipWindowRef.current = pipWindow;
       setIsPipOpen(true);
 
-      // Add base styles directly (no external CSS needed)
+      // Add base styles
       const baseStyle = pipWindow.document.createElement('style');
       baseStyle.textContent = `
         * { 
@@ -491,7 +865,6 @@ export const DocumentPiPController = ({
       container.style.height = '100%';
       pipWindow.document.body.appendChild(container);
 
-      // Mount React component
       rootRef.current = createRoot(container);
 
       // Handle PiP window close
@@ -517,7 +890,6 @@ export const DocumentPiPController = ({
         isMicOn={isMicOn}
         isDrawingMode={isDrawingMode}
         isZoomMode={isZoomMode}
-        isCanvasOpen={isCanvasOpen}
         drawingColor={drawingColor}
         onPause={onPause}
         onResume={onResume}
@@ -530,14 +902,15 @@ export const DocumentPiPController = ({
         onClose={closePiP}
         onToggleDrawing={onToggleDrawing}
         onToggleZoom={onToggleZoom}
-        onToggleCanvas={onToggleCanvas}
         onChangeDrawingColor={onChangeDrawingColor}
         onClearDrawings={onClearDrawings}
+        onSaveCanvasOverlay={onSaveCanvasOverlay}
+        pipWindow={pipWindowRef.current}
       />
     );
-  }, [duration, isPaused, isMicOn, isDrawingMode, isZoomMode, isCanvasOpen, drawingColor, isPipOpen, onPause, onResume, onStop, onToggleMic, onScreenshot, onToggleDrawing, onToggleZoom, onToggleCanvas, onChangeDrawingColor, onClearDrawings]);
+  }, [duration, isPaused, isMicOn, isDrawingMode, isZoomMode, drawingColor, isPipOpen, onPause, onResume, onStop, onToggleMic, onScreenshot, onToggleDrawing, onToggleZoom, onChangeDrawingColor, onClearDrawings, onSaveCanvasOverlay]);
 
-  // Auto-open PiP on mount if supported (with retry)
+  // Auto-open PiP on mount if supported
   useEffect(() => {
     if (!isPipSupported || isPipOpen) return;
 
@@ -559,7 +932,6 @@ export const DocumentPiPController = ({
       }
     };
 
-    // First attempt after 500ms
     const timer = setTimeout(tryOpenPiP, 500);
     return () => clearTimeout(timer);
   }, [isPipSupported, openPiP, isPipOpen]);
@@ -580,7 +952,6 @@ export const DocumentPiPController = ({
     };
   }, [closePiP]);
 
-  // Return status for parent components
   return {
     isPipSupported,
     isPipOpen,
