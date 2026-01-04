@@ -81,6 +81,27 @@ const EXPORT_SPEEDS = [
   { value: 2, label: '2x (Fastest)' },
 ];
 
+const QUALITY_PRESETS = [
+  { value: '720p', label: '720p', width: 1280, height: 720, defaultBitrate: 2500000 },
+  { value: '1080p', label: '1080p', width: 1920, height: 1080, defaultBitrate: 5000000 },
+  { value: '2k', label: '2K', width: 2560, height: 1440, defaultBitrate: 8000000 },
+  { value: 'original', label: 'Original', width: 0, height: 0, defaultBitrate: 5000000 },
+];
+
+const BITRATE_RANGE = { min: 1000000, max: 15000000 }; // 1-15 Mbps
+
+const formatBitrate = (bps: number) => {
+  const mbps = bps / 1000000;
+  return `${mbps.toFixed(1)} Mbps`;
+};
+
+const formatFileSize = (bytes: number) => {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+};
+
 const VideoEditor = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -119,6 +140,8 @@ const VideoEditor = () => {
   const [newText, setNewText] = useState('');
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
   const [exportSpeed, setExportSpeed] = useState(1);
+  const [exportQuality, setExportQuality] = useState('original');
+  const [exportBitrate, setExportBitrate] = useState(5000000);
   
   const recordingId = searchParams.get('id');
   
@@ -414,6 +437,32 @@ const VideoEditor = () => {
     }
     return videoState.duration || 0;
   }, [trimState, videoState.duration]);
+
+  // Get selected quality preset
+  const getSelectedQualityPreset = useCallback(() => {
+    return QUALITY_PRESETS.find(q => q.value === exportQuality) || QUALITY_PRESETS[3];
+  }, [exportQuality]);
+
+  // Estimate file size based on bitrate, duration, and speed
+  const estimateFileSize = useCallback(() => {
+    const duration = getEffectiveDuration();
+    if (duration <= 0) return 0;
+    
+    const exportedDuration = duration / exportSpeed;
+    // Video bitrate + audio bitrate (128kbps)
+    const totalBitsPerSecond = exportBitrate + 128000;
+    const estimatedBits = totalBitsPerSecond * exportedDuration;
+    return Math.round(estimatedBits / 8);
+  }, [getEffectiveDuration, exportSpeed, exportBitrate]);
+
+  // Handle quality preset change
+  const handleQualityChange = useCallback((quality: string) => {
+    setExportQuality(quality);
+    const preset = QUALITY_PRESETS.find(q => q.value === quality);
+    if (preset) {
+      setExportBitrate(preset.defaultBitrate);
+    }
+  }, []);
   
   // Export video with audio using real-time playback
   const exportVideo = async () => {
@@ -485,9 +534,24 @@ const VideoEditor = () => {
 
       await ensureVideoReady();
 
-      // Set canvas dimensions
-      canvas.width = video.videoWidth || 1920;
-      canvas.height = video.videoHeight || 1080;
+      // Set canvas dimensions based on quality preset
+      const qualityPreset = getSelectedQualityPreset();
+      if (qualityPreset.value === 'original' || qualityPreset.width === 0) {
+        canvas.width = video.videoWidth || 1920;
+        canvas.height = video.videoHeight || 1080;
+      } else {
+        // Scale maintaining aspect ratio
+        const videoAspect = video.videoWidth / video.videoHeight;
+        const presetAspect = qualityPreset.width / qualityPreset.height;
+        
+        if (videoAspect > presetAspect) {
+          canvas.width = qualityPreset.width;
+          canvas.height = Math.round(qualityPreset.width / videoAspect);
+        } else {
+          canvas.height = qualityPreset.height;
+          canvas.width = Math.round(qualityPreset.height * videoAspect);
+        }
+      }
 
       const startTime = Math.max(0, Math.min(trimState.startTime || 0, video.duration));
       const endTime =
@@ -537,7 +601,7 @@ const VideoEditor = () => {
 
       const mediaRecorder = new MediaRecorder(canvasStream, {
         mimeType,
-        videoBitsPerSecond: 5000000,
+        videoBitsPerSecond: exportBitrate,
         audioBitsPerSecond: 128000,
       });
 
@@ -1028,8 +1092,8 @@ const VideoEditor = () => {
                 Trim
               </TabsTrigger>
               <TabsTrigger value="speed" className="gap-1 text-xs px-2">
-                <Gauge className="w-3.5 h-3.5" />
-                Speed
+                <Download className="w-3.5 h-3.5" />
+                Export
               </TabsTrigger>
               <TabsTrigger value="filters" className="gap-1 text-xs px-2">
                 <Sliders className="w-3.5 h-3.5" />
@@ -1098,21 +1162,61 @@ const VideoEditor = () => {
                 </div>
               </TabsContent>
 
-              {/* Speed Tab */}
-              <TabsContent value="speed" className="p-4 space-y-4 mt-0">
+              {/* Speed Tab - Now Export Settings */}
+              <TabsContent value="speed" className="p-4 space-y-5 mt-0">
+                {/* Quality Presets */}
+                <div className="space-y-3">
+                  <Label className="text-sm font-medium">Export Quality</Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {QUALITY_PRESETS.map((preset) => (
+                      <button
+                        key={preset.value}
+                        onClick={() => handleQualityChange(preset.value)}
+                        className={cn(
+                          "p-3 rounded-lg border text-sm font-medium transition-all",
+                          exportQuality === preset.value
+                            ? "border-primary bg-primary/10 text-primary"
+                            : "border-border bg-secondary/30 text-muted-foreground hover:bg-secondary/50"
+                        )}
+                      >
+                        <div className="font-medium">{preset.label}</div>
+                        {preset.width > 0 && (
+                          <div className="text-xs opacity-70">{preset.width}×{preset.height}</div>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Bitrate Slider */}
+                <div className="space-y-3">
+                  <div className="flex justify-between">
+                    <Label className="text-sm font-medium">Bitrate</Label>
+                    <span className="text-sm font-medium text-primary">{formatBitrate(exportBitrate)}</span>
+                  </div>
+                  <Slider
+                    value={[exportBitrate]}
+                    min={BITRATE_RANGE.min}
+                    max={BITRATE_RANGE.max}
+                    step={500000}
+                    onValueChange={(v) => setExportBitrate(v[0])}
+                  />
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>Lower (smaller file)</span>
+                    <span>Higher (better quality)</span>
+                  </div>
+                </div>
+
+                {/* Export Speed */}
                 <div className="space-y-3">
                   <Label className="text-sm font-medium">Export Speed</Label>
-                  <p className="text-xs text-muted-foreground">
-                    Speed up the exported video. Higher speeds reduce duration and file size.
-                  </p>
-                  
                   <div className="grid grid-cols-2 gap-2">
                     {EXPORT_SPEEDS.map((speed) => (
                       <button
                         key={speed.value}
                         onClick={() => setExportSpeed(speed.value)}
                         className={cn(
-                          "p-3 rounded-lg border text-sm font-medium transition-all",
+                          "p-2.5 rounded-lg border text-xs font-medium transition-all",
                           exportSpeed === speed.value
                             ? "border-primary bg-primary/10 text-primary"
                             : "border-border bg-secondary/30 text-muted-foreground hover:bg-secondary/50"
@@ -1124,26 +1228,34 @@ const VideoEditor = () => {
                   </div>
                 </div>
 
+                {/* Export Summary */}
                 <div className="p-4 rounded-lg bg-secondary/30 space-y-2">
                   <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Original Duration</span>
+                    <span className="text-muted-foreground">Duration</span>
                     <span className="font-medium text-foreground">
-                      {formatTime(getEffectiveDuration())}
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Export Duration</span>
-                    <span className="font-medium text-primary">
                       {formatTime(getEffectiveDuration() / exportSpeed)}
                     </span>
                   </div>
-                  {exportSpeed > 1 && (
-                    <div className="pt-2 border-t border-border/50">
-                      <p className="text-xs text-muted-foreground">
-                        ⚡ Video will be {Math.round((1 - 1/exportSpeed) * 100)}% shorter
-                      </p>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Quality</span>
+                    <span className="font-medium text-foreground">
+                      {getSelectedQualityPreset().label}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Bitrate</span>
+                    <span className="font-medium text-foreground">
+                      {formatBitrate(exportBitrate)}
+                    </span>
+                  </div>
+                  <div className="pt-2 mt-2 border-t border-border/50">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Est. File Size</span>
+                      <span className="font-semibold text-primary">
+                        ~{formatFileSize(estimateFileSize())}
+                      </span>
                     </div>
-                  )}
+                  </div>
                 </div>
               </TabsContent>
               
