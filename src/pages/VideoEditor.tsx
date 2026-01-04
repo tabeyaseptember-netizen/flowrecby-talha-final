@@ -488,6 +488,49 @@ const VideoEditor = () => {
       const ctx = canvas.getContext('2d');
       if (!ctx) throw new Error('Canvas context not available');
 
+      const withTimeout = <T,>(promise: Promise<T>, timeoutMs: number, message: string) =>
+        Promise.race([
+          promise,
+          new Promise<T>((_, reject) =>
+            window.setTimeout(() => reject(new Error(message)), timeoutMs)
+          ),
+        ]);
+
+      const waitForCanPlay = async () => {
+        if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) return;
+
+        await Promise.race([
+          new Promise<void>((resolve, reject) => {
+            const onCanPlay = () => {
+              cleanup();
+              resolve();
+            };
+            const onError = () => {
+              cleanup();
+              reject(new Error('Video data could not be loaded for export'));
+            };
+            const cleanup = () => {
+              video.removeEventListener('canplay', onCanPlay);
+              video.removeEventListener('canplaythrough', onCanPlay);
+              video.removeEventListener('error', onError);
+            };
+
+            video.addEventListener('canplay', onCanPlay);
+            video.addEventListener('canplaythrough', onCanPlay);
+            video.addEventListener('error', onError);
+
+            // quick check
+            if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+              cleanup();
+              resolve();
+            }
+          }),
+          new Promise<void>((_, reject) =>
+            window.setTimeout(() => reject(new Error('Timed out waiting for video data')), 8000)
+          ),
+        ]);
+      };
+
       // Ensure we have metadata (duration + dimensions) before exporting.
       const ensureVideoReady = async () => {
         const isReady = () =>
@@ -579,6 +622,11 @@ const VideoEditor = () => {
 
       try {
         audioContext = new AudioContext();
+        try {
+          await audioContext.resume();
+        } catch {
+          // ignore (some browsers keep it suspended; export can still proceed without audio)
+        }
         const source = audioContext.createMediaElementSource(video);
         audioDestination = audioContext.createMediaStreamDestination();
         source.connect(audioDestination);
@@ -673,6 +721,8 @@ const VideoEditor = () => {
         }
       });
 
+      await waitForCanPlay();
+
       video.muted = false;
       video.playbackRate = exportSpeed;
 
@@ -681,12 +731,30 @@ const VideoEditor = () => {
 
       const blob = await new Promise<Blob>((resolve, reject) => {
         let frameHandle: number | null = null;
-        const rvfc = (video as any).requestVideoFrameCallback?.bind(video) as
-          | undefined
-          | ((cb: () => void) => number);
-        const cancelRvfc = (video as any).cancelVideoFrameCallback?.bind(video) as
-          | undefined
-          | ((handle: number) => void);
+        let stallInterval: number | null = null;
+        let settled = false;
+
+        let lastTime = startTime;
+        let lastAdvanceAt = Date.now();
+
+        const cleanupLoop = () => {
+          if (frameHandle != null) cancelAnimationFrame(frameHandle);
+          if (stallInterval != null) window.clearInterval(stallInterval);
+        };
+
+        const finishResolve = (b: Blob) => {
+          if (settled) return;
+          settled = true;
+          cleanupLoop();
+          resolve(b);
+        };
+
+        const finishReject = (err: Error) => {
+          if (settled) return;
+          settled = true;
+          cleanupLoop();
+          reject(err);
+        };
 
         const stopRecording = () => {
           try {
@@ -700,16 +768,21 @@ const VideoEditor = () => {
         };
 
         mediaRecorder.onstop = () => {
-          if (rvfc && cancelRvfc && frameHandle != null) cancelRvfc(frameHandle);
-          if (!rvfc && frameHandle != null) cancelAnimationFrame(frameHandle);
-          resolve(new Blob(chunks, { type: 'video/webm' }));
+          finishResolve(new Blob(chunks, { type: 'video/webm' }));
         };
-        mediaRecorder.onerror = () => reject(new Error('MediaRecorder error'));
+        mediaRecorder.onerror = () => {
+          finishReject(new Error('MediaRecorder error'));
+        };
 
         const tick = () => {
           const t = video.currentTime;
           drawFrame(t);
           setExportProgress(Math.max(0, Math.min(100, ((t - startTime) / totalDuration) * 100)));
+
+          if (t > lastTime + 0.02) {
+            lastTime = t;
+            lastAdvanceAt = Date.now();
+          }
 
           if (t >= endTime || video.ended) {
             video.pause();
@@ -717,27 +790,29 @@ const VideoEditor = () => {
             return;
           }
 
-          if (rvfc) {
-            frameHandle = rvfc(tick);
-          } else {
-            frameHandle = requestAnimationFrame(() => {
-              if (video.paused) {
-                stopRecording();
-                return;
-              }
-              tick();
-            });
-          }
+          frameHandle = requestAnimationFrame(tick);
         };
 
-        mediaRecorder.start();
+        // If playback doesn't advance for too long, abort instead of hanging forever.
+        stallInterval = window.setInterval(() => {
+          if (Date.now() - lastAdvanceAt > 7000) {
+            video.pause();
+            stopRecording();
+            finishReject(
+              new Error('Export is stuck (playback not progressing). Try lowering quality/bitrate and export again.')
+            );
+          }
+        }, 500);
 
-        video
-          .play()
+        // Collect chunks periodically to reduce the chance of 0B results.
+        mediaRecorder.start(1000);
+
+        withTimeout(video.play(), 6000, 'Could not start playback for export. Try lowering quality/bitrate.')
           .then(() => tick())
           .catch((err) => {
+            video.pause();
             stopRecording();
-            reject(err);
+            finishReject(err instanceof Error ? err : new Error('Failed to start export playback'));
           });
       });
 
