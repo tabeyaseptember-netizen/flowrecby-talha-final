@@ -24,6 +24,14 @@ export interface Screenshot {
   blob: Blob;
 }
 
+export interface CanvasOverlay {
+  id: string;
+  imageData: string; // base64 encoded image
+  timestamp: Date;
+  width: number;
+  height: number;
+}
+
 export interface Recording {
   id: string;
   blob: Blob;
@@ -33,6 +41,7 @@ export interface Recording {
   thumbnail?: string;
   resolution: string;
   size: number;
+  canvasOverlays?: CanvasOverlay[];
 }
 
 interface RecordingSettings {
@@ -60,6 +69,7 @@ interface RecordingState {
   settings: RecordingSettings;
   recordings: Recording[];
   screenshots: Screenshot[];
+  canvasOverlays: CanvasOverlay[];
   cameraStream: MediaStream | null;
   isPipActive: boolean;
   isUIHidden: boolean;
@@ -80,6 +90,8 @@ interface RecordingContextType extends RecordingState {
   disablePip: () => void;
   toggleMic: () => void;
   addRecording: (recording: Recording) => void;
+  addCanvasOverlay: (imageData: string, width: number, height: number) => void;
+  clearCanvasOverlays: () => void;
   videoRef: React.RefObject<HTMLVideoElement>;
   canvasRef: React.RefObject<HTMLCanvasElement>;
 }
@@ -119,6 +131,7 @@ export const RecordingProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [settings, setSettings] = useState<RecordingSettings>(defaultSettings);
   const [recordings, setRecordings] = useState<Recording[]>([]);
   const [screenshots, setScreenshots] = useState<Screenshot[]>([]);
+  const [canvasOverlays, setCanvasOverlays] = useState<CanvasOverlay[]>([]);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
   const [isPipActive, setIsPipActive] = useState(false);
@@ -827,12 +840,43 @@ export const RecordingProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   }, []);
 
   const addRecording = useCallback((recording: Recording) => {
+    // Add canvas overlays to the recording if any
+    const recordingWithOverlays = {
+      ...recording,
+      canvasOverlays: canvasOverlays.length > 0 ? [...canvasOverlays] : undefined,
+    };
+    
     // Save to IndexedDB
-    saveRecording(recording).catch(err => {
+    saveRecording(recordingWithOverlays).catch(err => {
       console.error('Failed to save recording:', err);
     });
     
-    setRecordings(prev => [recording, ...prev]);
+    setRecordings(prev => [recordingWithOverlays, ...prev]);
+    
+    // Clear canvas overlays after saving
+    setCanvasOverlays([]);
+  }, [canvasOverlays]);
+
+  // Add canvas overlay from FloatingCanvas
+  const addCanvasOverlay = useCallback((imageData: string, width: number, height: number) => {
+    const overlay: CanvasOverlay = {
+      id: Date.now().toString(),
+      imageData,
+      timestamp: new Date(),
+      width,
+      height,
+    };
+    setCanvasOverlays(prev => [...prev, overlay]);
+    
+    toast({
+      title: "Canvas Saved",
+      description: "Drawing will be added to video during export",
+    });
+  }, []);
+
+  // Clear all canvas overlays
+  const clearCanvasOverlays = useCallback(() => {
+    setCanvasOverlays([]);
   }, []);
 
   return (
@@ -844,6 +888,7 @@ export const RecordingProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         settings,
         recordings,
         screenshots,
+        canvasOverlays,
         cameraStream,
         isPipActive,
         isUIHidden,
@@ -861,6 +906,8 @@ export const RecordingProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         disablePip,
         toggleMic,
         addRecording,
+        addCanvasOverlay,
+        clearCanvasOverlays,
         videoRef,
         canvasRef,
       }}

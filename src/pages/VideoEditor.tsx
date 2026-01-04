@@ -20,7 +20,7 @@ import {
   RotateCcw,
   Check,
 } from 'lucide-react';
-import { useRecording, Recording } from '@/contexts/RecordingContext';
+import { useRecording, Recording, CanvasOverlay } from '@/contexts/RecordingContext';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -105,6 +105,8 @@ const VideoEditor = () => {
   
   const [filter, setFilter] = useState<FilterState>(defaultFilter);
   const [textOverlays, setTextOverlays] = useState<TextOverlay[]>([]);
+  const [canvasOverlaysForExport, setCanvasOverlaysForExport] = useState<CanvasOverlay[]>([]);
+  const [loadedOverlayImages, setLoadedOverlayImages] = useState<Map<string, HTMLImageElement>>(new Map());
   const [newText, setNewText] = useState('');
   
   const recordingId = searchParams.get('id');
@@ -115,6 +117,22 @@ const VideoEditor = () => {
       const recording = recordings.find(r => r.id === recordingId);
       if (recording) {
         loadVideoFromUrl(recording.url);
+        
+        // Load canvas overlays if present
+        if (recording.canvasOverlays && recording.canvasOverlays.length > 0) {
+          setCanvasOverlaysForExport(recording.canvasOverlays);
+          
+          // Preload overlay images
+          const imageMap = new Map<string, HTMLImageElement>();
+          recording.canvasOverlays.forEach(overlay => {
+            const img = new Image();
+            img.onload = () => {
+              imageMap.set(overlay.id, img);
+              setLoadedOverlayImages(new Map(imageMap));
+            };
+            img.src = overlay.imageData;
+          });
+        }
       } else {
         setLoadError('Recording not found');
         setIsLoading(false);
@@ -449,6 +467,24 @@ const VideoEditor = () => {
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         ctx.filter = 'none';
         
+        // Draw canvas overlays (drawings saved during recording)
+        canvasOverlaysForExport.forEach(overlay => {
+          const img = loadedOverlayImages.get(overlay.id);
+          if (img && img.complete) {
+            // Scale overlay to fit video dimensions while maintaining aspect ratio
+            const scale = Math.min(
+              canvas.width / overlay.width,
+              canvas.height / overlay.height
+            );
+            const scaledWidth = overlay.width * scale;
+            const scaledHeight = overlay.height * scale;
+            const offsetX = (canvas.width - scaledWidth) / 2;
+            const offsetY = (canvas.height - scaledHeight) / 2;
+            
+            ctx.drawImage(img, offsetX, offsetY, scaledWidth, scaledHeight);
+          }
+        });
+        
         // Draw text overlays
         textOverlays.forEach(text => {
           if (currentTime >= text.startTime && currentTime <= text.endTime) {
@@ -682,6 +718,27 @@ const VideoEditor = () => {
               muted={videoState.isMuted}
               onClick={togglePlay}
             />
+            
+            {/* Canvas overlay indicator */}
+            {canvasOverlaysForExport.length > 0 && (
+              <div className="absolute top-2 left-2 flex items-center gap-2 px-2 py-1 rounded-md bg-primary/80 text-primary-foreground text-xs">
+                <span>📝 {canvasOverlaysForExport.length} drawing overlay{canvasOverlaysForExport.length > 1 ? 's' : ''}</span>
+              </div>
+            )}
+            
+            {/* Canvas overlays preview (scaled down) */}
+            {canvasOverlaysForExport.map(overlay => {
+              const img = loadedOverlayImages.get(overlay.id);
+              if (!img) return null;
+              return (
+                <img
+                  key={overlay.id}
+                  src={overlay.imageData}
+                  alt="Canvas overlay"
+                  className="absolute inset-0 w-full h-full object-contain pointer-events-none opacity-80"
+                />
+              );
+            })}
             
             {/* Text overlays */}
             {visibleOverlays.map(overlay => (
