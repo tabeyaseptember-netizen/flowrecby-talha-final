@@ -14,12 +14,16 @@ import {
   PictureInPicture2,
   Info,
   Keyboard,
-  AlertCircle
+  AlertCircle,
+  Pencil,
+  Sun,
+  Trash2
 } from 'lucide-react';
 import { useRecording } from '@/contexts/RecordingContext';
 import { useMediaSession } from '@/hooks/useMediaSession';
 import { useBackgroundStability } from '@/hooks/useBackgroundStability';
 import { useDocumentPiP } from './DocumentPiPController';
+import { ScreenAnnotationOverlay } from './ScreenAnnotationOverlay';
 import { cn } from '@/lib/utils';
 
 const formatDuration = (seconds: number) => {
@@ -57,6 +61,13 @@ export const FloatingControls = () => {
     isRecording,
   } = useRecording();
 
+  // Drawing and zoom state
+  const [isDrawingMode, setIsDrawingMode] = useState(false);
+  const [isZoomMode, setIsZoomMode] = useState(false);
+  const [drawingColor, setDrawingColor] = useState('#ef4444');
+  const [zoomPosition, setZoomPosition] = useState<{ x: number; y: number } | null>(null);
+  const [clearTrigger, setClearTrigger] = useState(0);
+
   const [position, setPosition] = useState({ x: 20, y: 20 });
   const [isMinimized, setIsMinimized] = useState(false);
   const [showPipHint, setShowPipHint] = useState(true);
@@ -80,17 +91,54 @@ export const FloatingControls = () => {
     onVisibilityChange: (visible) => setIsTabFocused(visible),
   });
 
+  // Toggle functions for drawing/zoom
+  const toggleDrawingMode = useCallback(() => {
+    setIsDrawingMode(prev => !prev);
+    if (isZoomMode) setIsZoomMode(false);
+  }, [isZoomMode]);
+
+  const toggleZoomMode = useCallback(() => {
+    setIsZoomMode(prev => !prev);
+    if (isDrawingMode) setIsDrawingMode(false);
+  }, [isDrawingMode]);
+
+  const clearDrawings = useCallback(() => {
+    setClearTrigger(prev => prev + 1);
+  }, []);
+
+  // Track mouse position for spotlight
+  useEffect(() => {
+    if (!isZoomMode) {
+      setZoomPosition(null);
+      return;
+    }
+
+    const handleMouseMove = (e: MouseEvent) => {
+      setZoomPosition({ x: e.clientX, y: e.clientY });
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    return () => window.removeEventListener('mousemove', handleMouseMove);
+  }, [isZoomMode]);
+
   // Initialize Document PiP for interactive floating controls
   const { isPipSupported: isDocPipSupported, isPipOpen: isDocPipOpen, openPiP: openDocPiP, closePiP: closeDocPiP } = useDocumentPiP({
     duration,
     isPaused,
     isMicOn,
+    isDrawingMode,
+    isZoomMode,
+    drawingColor,
     onPause: pauseRecording,
     onResume: resumeRecording,
     onStop: stopRecording,
     onToggleMic: toggleMic,
     onScreenshot: takeScreenshot,
     onClose: () => {},
+    onToggleDrawing: toggleDrawingMode,
+    onToggleZoom: toggleZoomMode,
+    onChangeDrawingColor: setDrawingColor,
+    onClearDrawings: clearDrawings,
   });
 
   // Track tab focus
@@ -160,18 +208,30 @@ export const FloatingControls = () => {
   }
 
   return (
-    <motion.div
-      drag
-      dragMomentum={false}
-      onDragEnd={(_, info) => {
-        setPosition({ x: position.x + info.offset.x, y: position.y - info.offset.y });
-      }}
-      initial={{ opacity: 0, scale: 0.9, y: 20 }}
-      animate={{ opacity: 1, scale: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.9, y: 20 }}
-      style={{ left: position.x, bottom: position.y }}
-      className="fixed z-[9999] glass rounded-2xl shadow-xl p-2 border border-border"
-    >
+    <>
+      {/* Screen Annotation Overlay */}
+      <ScreenAnnotationOverlay
+        isDrawingMode={isDrawingMode}
+        isZoomMode={isZoomMode}
+        zoomLevel={1.5}
+        zoomPosition={zoomPosition}
+        drawingColor={drawingColor}
+        brushSize={4}
+        key={clearTrigger}
+      />
+
+      <motion.div
+        drag
+        dragMomentum={false}
+        onDragEnd={(_, info) => {
+          setPosition({ x: position.x + info.offset.x, y: position.y - info.offset.y });
+        }}
+        initial={{ opacity: 0, scale: 0.9, y: 20 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.9, y: 20 }}
+        style={{ left: position.x, bottom: position.y }}
+        className="fixed z-[9999] glass rounded-2xl shadow-xl p-2 border border-border"
+      >
       <div className="flex items-center gap-2">
         {/* Drag Handle */}
         <div className="cursor-grab active:cursor-grabbing p-2 text-muted-foreground hover:text-foreground">
@@ -262,6 +322,41 @@ export const FloatingControls = () => {
         >
           <MousePointer2 className="w-4 h-4" />
         </button>
+
+        {/* Drawing Tool */}
+        <button
+          onClick={toggleDrawingMode}
+          className={cn(
+            "p-2.5 rounded-xl transition-colors",
+            isDrawingMode ? "bg-purple-500/20 text-purple-400" : "bg-secondary text-muted-foreground"
+          )}
+          title="Draw/Annotate on Screen"
+        >
+          <Pencil className="w-4 h-4" />
+        </button>
+
+        {/* Spotlight/Zoom Tool */}
+        <button
+          onClick={toggleZoomMode}
+          className={cn(
+            "p-2.5 rounded-xl transition-colors",
+            isZoomMode ? "bg-orange-500/20 text-orange-400" : "bg-secondary text-muted-foreground"
+          )}
+          title="Spotlight/Highlight Area"
+        >
+          <Sun className="w-4 h-4" />
+        </button>
+
+        {/* Clear Drawings (only when drawing mode is active) */}
+        {isDrawingMode && (
+          <button
+            onClick={clearDrawings}
+            className="p-2.5 rounded-xl bg-secondary hover:bg-secondary/80 transition-colors"
+            title="Clear All Drawings"
+          >
+            <Trash2 className="w-4 h-4 text-muted-foreground" />
+          </button>
+        )}
 
         <div className="w-px h-6 bg-border" />
 
@@ -428,6 +523,7 @@ export const FloatingControls = () => {
           </span>
         </div>
       </div>
-    </motion.div>
+      </motion.div>
+    </>
   );
 };

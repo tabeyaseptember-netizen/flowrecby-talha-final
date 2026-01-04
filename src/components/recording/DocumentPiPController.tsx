@@ -5,12 +5,19 @@ interface DocumentPiPControllerProps {
   duration: number;
   isPaused: boolean;
   isMicOn: boolean;
+  isDrawingMode?: boolean;
+  isZoomMode?: boolean;
+  drawingColor?: string;
   onPause: () => void;
   onResume: () => void;
   onStop: () => void;
   onToggleMic: () => void;
   onScreenshot: () => void;
   onClose: () => void;
+  onToggleDrawing?: () => void;
+  onToggleZoom?: () => void;
+  onChangeDrawingColor?: (color: string) => void;
+  onClearDrawings?: () => void;
 }
 
 const formatDuration = (seconds: number) => {
@@ -36,34 +43,34 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: '6px 10px',
+    padding: '4px 8px',
     background: 'linear-gradient(90deg, #0f3460 0%, #16213e 100%)',
     borderBottom: '1px solid rgba(255,255,255,0.1)',
   },
   timerSection: {
     display: 'flex',
     alignItems: 'center',
-    gap: '6px',
+    gap: '4px',
   },
   recordingDot: (isPaused: boolean) => ({
-    width: '8px',
-    height: '8px',
+    width: '6px',
+    height: '6px',
     borderRadius: '50%',
     background: isPaused ? '#eab308' : '#ef4444',
-    boxShadow: isPaused ? 'none' : '0 0 8px #ef4444',
+    boxShadow: isPaused ? 'none' : '0 0 6px #ef4444',
     animation: isPaused ? 'none' : 'pulse 1.5s infinite',
   }),
   timer: {
     fontFamily: 'monospace',
-    fontSize: '14px',
+    fontSize: '11px',
     fontWeight: 'bold',
-    letterSpacing: '1px',
+    letterSpacing: '0.5px',
   },
   status: (isPaused: boolean) => ({
-    fontSize: '9px',
+    fontSize: '7px',
     fontWeight: '600',
-    padding: '2px 6px',
-    borderRadius: '4px',
+    padding: '1px 4px',
+    borderRadius: '3px',
     background: isPaused ? 'rgba(234,179,8,0.2)' : 'rgba(239,68,68,0.2)',
     color: isPaused ? '#fbbf24' : '#f87171',
   }),
@@ -72,33 +79,47 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: '4px',
-    padding: '6px 8px',
+    gap: '3px',
+    padding: '4px 6px',
+    flexWrap: 'wrap' as const,
   },
   button: (color: string, isActive: boolean = true) => ({
-    width: '32px',
-    height: '32px',
-    borderRadius: '8px',
+    width: '26px',
+    height: '26px',
+    borderRadius: '6px',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    border: `1.5px solid ${color}`,
-    background: `${color}20`,
+    border: `1px solid ${color}`,
+    background: isActive ? `${color}30` : `${color}15`,
     color: isActive ? color : '#6b7280',
     cursor: 'pointer',
     transition: 'transform 0.15s, background 0.15s',
   }),
   buttonIcon: {
-    width: '14px',
-    height: '14px',
+    width: '12px',
+    height: '12px',
   },
+  colorDot: (color: string) => ({
+    width: '10px',
+    height: '10px',
+    borderRadius: '50%',
+    background: color,
+    border: '1px solid rgba(255,255,255,0.5)',
+  }),
   footer: {
-    padding: '4px 8px',
+    padding: '2px 6px',
     textAlign: 'center' as const,
-    fontSize: '8px',
+    fontSize: '7px',
     color: '#6b7280',
     borderTop: '1px solid rgba(255,255,255,0.05)',
     background: 'rgba(0,0,0,0.2)',
+  },
+  divider: {
+    width: '1px',
+    height: '18px',
+    background: 'rgba(255,255,255,0.15)',
+    margin: '0 2px',
   },
 };
 
@@ -148,6 +169,39 @@ const MicOffIcon = () => (
   </svg>
 );
 
+const PencilIcon = () => (
+  <svg style={styles.buttonIcon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 19l7-7 3 3-7 7-3-3z" />
+    <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z" />
+    <path d="M2 2l7.586 7.586" />
+    <circle cx="11" cy="11" r="2" />
+  </svg>
+);
+
+const SpotlightIcon = () => (
+  <svg style={styles.buttonIcon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="5" />
+    <line x1="12" y1="1" x2="12" y2="3" />
+    <line x1="12" y1="21" x2="12" y2="23" />
+    <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+    <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+    <line x1="1" y1="12" x2="3" y2="12" />
+    <line x1="21" y1="12" x2="23" y2="12" />
+    <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+    <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+  </svg>
+);
+
+const TrashIcon = () => (
+  <svg style={styles.buttonIcon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="3,6 5,6 21,6" />
+    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+  </svg>
+);
+
+// Available drawing colors
+const DRAWING_COLORS = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#8b5cf6', '#ffffff'];
+
 /**
  * PiP Control Panel - Compact UI rendered inside the Document PiP window
  * Uses inline styles for complete offline support
@@ -156,12 +210,21 @@ const PiPControlPanel = ({
   duration,
   isPaused,
   isMicOn,
+  isDrawingMode = false,
+  isZoomMode = false,
+  drawingColor = '#ef4444',
   onPause,
   onResume,
   onStop,
   onToggleMic,
   onScreenshot,
+  onToggleDrawing,
+  onToggleZoom,
+  onChangeDrawingColor,
+  onClearDrawings,
 }: DocumentPiPControllerProps) => {
+  const [showColorPicker, setShowColorPicker] = useState(false);
+
   return (
     <div style={styles.container}>
       {/* Inline keyframe animation */}
@@ -217,16 +280,103 @@ const PiPControlPanel = ({
         {/* Mic Toggle */}
         <button
           onClick={onToggleMic}
-          style={styles.button(isMicOn ? '#22c55e' : '#6b7280', true)}
+          style={styles.button(isMicOn ? '#22c55e' : '#6b7280', isMicOn)}
           title={isMicOn ? "Mute" : "Unmute"}
         >
           {isMicOn ? <MicIcon /> : <MicOffIcon />}
         </button>
+
+        <div style={styles.divider} />
+
+        {/* Drawing Tool */}
+        {onToggleDrawing && (
+          <button
+            onClick={onToggleDrawing}
+            style={styles.button('#8b5cf6', isDrawingMode)}
+            title="Draw/Annotate"
+          >
+            <PencilIcon />
+          </button>
+        )}
+
+        {/* Color Picker (when drawing mode is active) */}
+        {isDrawingMode && onChangeDrawingColor && (
+          <div style={{ position: 'relative' }}>
+            <button
+              onClick={() => setShowColorPicker(!showColorPicker)}
+              style={{
+                ...styles.button('#ffffff', true),
+                padding: '2px',
+              }}
+              title="Change Color"
+            >
+              <div style={styles.colorDot(drawingColor)} />
+            </button>
+            
+            {/* Color picker dropdown */}
+            {showColorPicker && (
+              <div style={{
+                position: 'absolute',
+                bottom: '100%',
+                left: '50%',
+                transform: 'translateX(-50%)',
+                marginBottom: '4px',
+                display: 'flex',
+                gap: '3px',
+                padding: '4px',
+                background: 'rgba(0,0,0,0.8)',
+                borderRadius: '6px',
+                border: '1px solid rgba(255,255,255,0.2)',
+              }}>
+                {DRAWING_COLORS.map(color => (
+                  <button
+                    key={color}
+                    onClick={() => {
+                      onChangeDrawingColor(color);
+                      setShowColorPicker(false);
+                    }}
+                    style={{
+                      width: '16px',
+                      height: '16px',
+                      borderRadius: '50%',
+                      background: color,
+                      border: color === drawingColor ? '2px solid #fff' : '1px solid rgba(255,255,255,0.3)',
+                      cursor: 'pointer',
+                    }}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Clear Drawings */}
+        {isDrawingMode && onClearDrawings && (
+          <button
+            onClick={onClearDrawings}
+            style={styles.button('#6b7280', true)}
+            title="Clear All"
+          >
+            <TrashIcon />
+          </button>
+        )}
+
+        {/* Spotlight/Zoom Tool */}
+        {onToggleZoom && (
+          <button
+            onClick={onToggleZoom}
+            style={styles.button('#f97316', isZoomMode)}
+            title="Spotlight"
+          >
+            <SpotlightIcon />
+          </button>
+        )}
       </div>
 
       {/* Compact Footer */}
       <div style={styles.footer}>
-        Always on top
+        {isDrawingMode ? 'Draw on screen • ESC to clear' : 
+         isZoomMode ? 'Click to spotlight' : 'Tools ready'}
       </div>
     </div>
   );
@@ -240,12 +390,19 @@ export const DocumentPiPController = ({
   duration,
   isPaused,
   isMicOn,
+  isDrawingMode = false,
+  isZoomMode = false,
+  drawingColor = '#ef4444',
   onPause,
   onResume,
   onStop,
   onToggleMic,
   onScreenshot,
   onClose,
+  onToggleDrawing,
+  onToggleZoom,
+  onChangeDrawingColor,
+  onClearDrawings,
 }: DocumentPiPControllerProps) => {
   const pipWindowRef = useRef<Window | null>(null);
   const rootRef = useRef<Root | null>(null);
@@ -270,8 +427,8 @@ export const DocumentPiPController = ({
     try {
       // @ts-ignore - Document PiP API
       const pipWindow = await window.documentPictureInPicture.requestWindow({
-        width: 220,  // Compact width
-        height: 100, // Compact height
+        width: 260,  // Slightly wider for new tools
+        height: 90,  // Compact height
       });
 
       pipWindowRef.current = pipWindow;
@@ -330,6 +487,9 @@ export const DocumentPiPController = ({
         duration={duration}
         isPaused={isPaused}
         isMicOn={isMicOn}
+        isDrawingMode={isDrawingMode}
+        isZoomMode={isZoomMode}
+        drawingColor={drawingColor}
         onPause={onPause}
         onResume={onResume}
         onStop={() => {
@@ -339,9 +499,13 @@ export const DocumentPiPController = ({
         onToggleMic={onToggleMic}
         onScreenshot={onScreenshot}
         onClose={closePiP}
+        onToggleDrawing={onToggleDrawing}
+        onToggleZoom={onToggleZoom}
+        onChangeDrawingColor={onChangeDrawingColor}
+        onClearDrawings={onClearDrawings}
       />
     );
-  }, [duration, isPaused, isMicOn, isPipOpen, onPause, onResume, onStop, onToggleMic, onScreenshot]);
+  }, [duration, isPaused, isMicOn, isDrawingMode, isZoomMode, drawingColor, isPipOpen, onPause, onResume, onStop, onToggleMic, onScreenshot, onToggleDrawing, onToggleZoom, onChangeDrawingColor, onClearDrawings]);
 
   // Auto-open PiP on mount if supported (with retry)
   useEffect(() => {
