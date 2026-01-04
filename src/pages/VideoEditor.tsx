@@ -406,6 +406,15 @@ const VideoEditor = () => {
     toast({ title: 'Filters reset' });
   };
   
+  // Get effective duration (use trimState if valid, fallback to videoState.duration)
+  const getEffectiveDuration = useCallback(() => {
+    const trimDuration = trimState.endTime - trimState.startTime;
+    if (trimDuration > 0) {
+      return trimDuration;
+    }
+    return videoState.duration || 0;
+  }, [trimState, videoState.duration]);
+  
   // Export video with audio using real-time playback
   const exportVideo = async () => {
     if (!videoRef.current || !canvasRef.current) {
@@ -799,6 +808,24 @@ const VideoEditor = () => {
           
           {/* Playback controls */}
           <div className="bg-card border-t border-border p-4 space-y-3 shrink-0">
+            {/* Duration info bar */}
+            <div className="flex items-center justify-between text-xs">
+              <div className="flex items-center gap-2 px-2 py-1 rounded bg-secondary/50">
+                <span className="text-muted-foreground">Duration:</span>
+                <span className="font-mono font-medium text-foreground">
+                  {formatTime(getEffectiveDuration())}
+                </span>
+              </div>
+              {playbackSpeed !== 1 && (
+                <div className="flex items-center gap-2 px-2 py-1 rounded bg-primary/10">
+                  <span className="text-muted-foreground">At {playbackSpeed}x:</span>
+                  <span className="font-mono font-medium text-primary">
+                    {formatTime(getEffectiveDuration() / playbackSpeed)}
+                  </span>
+                </div>
+              )}
+            </div>
+            
             {/* Progress bar */}
             <div className="flex items-center gap-3">
               <span className="text-xs font-mono text-muted-foreground w-12">
@@ -813,13 +840,15 @@ const VideoEditor = () => {
                   onValueChange={(v) => seek(v[0])}
                 />
                 {/* Trim indicators */}
-                <div 
-                  className="absolute top-1/2 -translate-y-1/2 h-4 bg-primary/20 pointer-events-none"
-                  style={{
-                    left: `${(trimState.startTime / videoState.duration) * 100}%`,
-                    width: `${((trimState.endTime - trimState.startTime) / videoState.duration) * 100}%`,
-                  }}
-                />
+                {videoState.duration > 0 && (
+                  <div 
+                    className="absolute top-1/2 -translate-y-1/2 h-4 bg-primary/20 pointer-events-none"
+                    style={{
+                      left: `${(trimState.startTime / videoState.duration) * 100}%`,
+                      width: `${((trimState.endTime - trimState.startTime) / videoState.duration) * 100}%`,
+                    }}
+                  />
+                )}
               </div>
               <span className="text-xs font-mono text-muted-foreground w-12 text-right">
                 {formatTime(videoState.duration)}
@@ -991,13 +1020,13 @@ const VideoEditor = () => {
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Original Duration</span>
                     <span className="font-medium text-foreground">
-                      {formatTime(trimState.endTime - trimState.startTime)}
+                      {formatTime(getEffectiveDuration())}
                     </span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Export Duration</span>
                     <span className="font-medium text-primary">
-                      {formatTime((trimState.endTime - trimState.startTime) / exportSpeed)}
+                      {formatTime(getEffectiveDuration() / exportSpeed)}
                     </span>
                   </div>
                   {exportSpeed > 1 && (
