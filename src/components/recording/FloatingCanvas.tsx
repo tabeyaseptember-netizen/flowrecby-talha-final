@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Pencil, Type, Trash2, Download, GripVertical, Minus, Plus } from 'lucide-react';
+import { X, Pencil, Type, Trash2, Download, GripVertical, Minus, Plus, Film } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useRecording } from '@/contexts/RecordingContext';
 
 interface FloatingCanvasProps {
   isOpen: boolean;
@@ -14,6 +15,7 @@ const COLORS = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#8b5cf6'
 const BRUSH_SIZES = [2, 4, 8, 12];
 
 export const FloatingCanvas = ({ isOpen, onClose }: FloatingCanvasProps) => {
+  const { addCanvasOverlay, isRecording } = useRecording();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   
@@ -147,6 +149,16 @@ export const FloatingCanvas = ({ isOpen, onClose }: FloatingCanvasProps) => {
     link.href = canvas.toDataURL('image/png');
     link.click();
   }, []);
+
+  // Save canvas to video overlay
+  const saveToVideo = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    
+    // Get canvas as base64 PNG with transparency
+    const imageData = canvas.toDataURL('image/png');
+    addCanvasOverlay(imageData, canvas.width, canvas.height);
+  }, [addCanvasOverlay]);
 
   // Handle key press for text
   useEffect(() => {
@@ -305,6 +317,17 @@ export const FloatingCanvas = ({ isOpen, onClose }: FloatingCanvasProps) => {
             >
               <Download className="w-4 h-4" />
             </button>
+            
+            {/* Save to Video Button */}
+            {isRecording && (
+              <button
+                onClick={saveToVideo}
+                className="p-1.5 rounded-md bg-primary/20 hover:bg-primary/30 text-primary transition-colors"
+                title="Save to Video Overlay"
+              >
+                <Film className="w-4 h-4" />
+              </button>
+            )}
           </div>
 
           {/* Canvas */}
