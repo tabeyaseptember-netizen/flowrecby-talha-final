@@ -1,12 +1,26 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { FolderOpen, Search, Grid, List, X, Image, Download, Trash2, Upload } from 'lucide-react';
+import { FolderOpen, Search, Grid, List, X, Image, Download, Trash2, Upload, Clock, Gauge } from 'lucide-react';
 import { useRecording } from '@/contexts/RecordingContext';
 import { RecordingCard } from '@/components/recording/RecordingCard';
 import { cn } from '@/lib/utils';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+const PLAYBACK_SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
+
+const formatDuration = (seconds: number) => {
+  if (!isFinite(seconds) || isNaN(seconds) || seconds < 0) return '0:00';
+  const hrs = Math.floor(seconds / 3600);
+  const mins = Math.floor((seconds % 3600) / 60);
+  const secs = Math.floor(seconds % 60);
+  if (hrs > 0) {
+    return `${hrs}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  }
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
+};
+
 const Library = () => {
   const navigate = useNavigate();
   const { recordings, screenshots, deleteRecording, deleteScreenshot } = useRecording();
@@ -14,6 +28,10 @@ const Library = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [playingVideo, setPlayingVideo] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('recordings');
+  const [playbackSpeed, setPlaybackSpeed] = useState(1);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   const filteredRecordings = recordings.filter((recording) => {
     if (!searchQuery) return true;
@@ -42,6 +60,21 @@ const Library = () => {
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
+  };
+
+  // Update video playback speed
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.playbackRate = playbackSpeed;
+    }
+  }, [playbackSpeed, playingVideo]);
+
+  // Reset state when closing video
+  const handleCloseVideo = () => {
+    setPlayingVideo(null);
+    setPlaybackSpeed(1);
+    setCurrentTime(0);
+    setDuration(0);
   };
 
   const containerVariants = {
@@ -233,7 +266,7 @@ const Library = () => {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-50 bg-background/90 backdrop-blur-lg flex items-center justify-center p-8"
-            onClick={() => setPlayingVideo(null)}
+            onClick={handleCloseVideo}
           >
             <motion.div
               initial={{ scale: 0.9, opacity: 0 }}
@@ -242,18 +275,55 @@ const Library = () => {
               className="relative w-full max-w-4xl"
               onClick={(e) => e.stopPropagation()}
             >
+              {/* Close button */}
               <button
-                onClick={() => setPlayingVideo(null)}
+                onClick={handleCloseVideo}
                 className="absolute -top-12 right-0 p-2 rounded-lg bg-secondary hover:bg-secondary/80 text-foreground transition-colors"
               >
                 <X className="w-5 h-5" />
               </button>
+
+              {/* Video */}
               <video
+                ref={videoRef}
                 src={playingVideo}
                 controls
                 autoPlay
                 className="w-full rounded-2xl shadow-2xl"
+                onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
+                onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
               />
+
+              {/* Controls bar */}
+              <div className="mt-4 flex items-center justify-between gap-4 bg-card/80 backdrop-blur-sm rounded-xl p-3 border border-border">
+                {/* Duration display */}
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Clock className="w-4 h-4" />
+                  <span className="font-mono">
+                    {formatDuration(currentTime)} / {formatDuration(duration)}
+                  </span>
+                </div>
+
+                {/* Playback speed selector */}
+                <div className="flex items-center gap-2">
+                  <Gauge className="w-4 h-4 text-muted-foreground" />
+                  <Select
+                    value={playbackSpeed.toString()}
+                    onValueChange={(v) => setPlaybackSpeed(parseFloat(v))}
+                  >
+                    <SelectTrigger className="w-24 h-8">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {PLAYBACK_SPEEDS.map((speed) => (
+                        <SelectItem key={speed} value={speed.toString()}>
+                          {speed}x
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
             </motion.div>
           </motion.div>
         )}

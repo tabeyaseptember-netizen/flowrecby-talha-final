@@ -19,6 +19,7 @@ import {
   Sliders,
   RotateCcw,
   Check,
+  Gauge,
 } from 'lucide-react';
 import { useRecording, Recording, CanvasOverlay } from '@/contexts/RecordingContext';
 import { Button } from '@/components/ui/button';
@@ -72,6 +73,14 @@ const defaultFilter: FilterState = {
   grayscale: 0,
 };
 
+const PLAYBACK_SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
+const EXPORT_SPEEDS = [
+  { value: 1, label: '1x (Original)' },
+  { value: 1.25, label: '1.25x (Faster)' },
+  { value: 1.5, label: '1.5x (Faster)' },
+  { value: 2, label: '2x (Fastest)' },
+];
+
 const VideoEditor = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -108,6 +117,8 @@ const VideoEditor = () => {
   const [canvasOverlaysForExport, setCanvasOverlaysForExport] = useState<CanvasOverlay[]>([]);
   const [loadedOverlayImages, setLoadedOverlayImages] = useState<Map<string, HTMLImageElement>>(new Map());
   const [newText, setNewText] = useState('');
+  const [playbackSpeed, setPlaybackSpeed] = useState(1);
+  const [exportSpeed, setExportSpeed] = useState(1);
   
   const recordingId = searchParams.get('id');
   
@@ -270,6 +281,13 @@ const VideoEditor = () => {
     videoRef.current.volume = value;
     setVideoState(prev => ({ ...prev, volume: value }));
   };
+
+  // Handle playback speed change
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.playbackRate = playbackSpeed;
+    }
+  }, [playbackSpeed]);
   
   // Handle video time update and duration detection
   useEffect(() => {
@@ -417,6 +435,7 @@ const VideoEditor = () => {
       const startTime = trimState.startTime;
       const endTime = trimState.endTime;
       const totalDuration = endTime - startTime;
+      const exportedDuration = totalDuration / exportSpeed; // Adjusted duration based on speed
       
       // Capture canvas stream
       const canvasStream = canvas.captureStream(frameRate);
@@ -503,9 +522,10 @@ const VideoEditor = () => {
         });
       };
       
-      // Start real-time playback and recording
+      // Start real-time playback and recording with speed adjustment
       video.currentTime = startTime;
       video.muted = false;
+      video.playbackRate = exportSpeed; // Apply export speed
       
       await new Promise<void>((resolve) => {
         video.onseeked = () => resolve();
@@ -559,12 +579,13 @@ const VideoEditor = () => {
       // Reset video state
       video.muted = true;
       video.currentTime = startTime;
+      video.playbackRate = playbackSpeed; // Reset to preview speed
       
       // Download
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `edited-video-${Date.now()}.webm`;
+      a.download = `edited-video-${exportSpeed > 1 ? `${exportSpeed}x-` : ''}${Date.now()}.webm`;
       a.click();
       URL.revokeObjectURL(url);
       
@@ -573,7 +594,7 @@ const VideoEditor = () => {
         id: 'edited-' + Date.now(),
         blob,
         url: URL.createObjectURL(blob),
-        duration: totalDuration,
+        duration: exportedDuration, // Use adjusted duration
         timestamp: new Date(),
         resolution: `${canvas.width}x${canvas.height}`,
         size: blob.size,
@@ -582,7 +603,7 @@ const VideoEditor = () => {
       
       toast({
         title: 'Export complete',
-        description: 'Video saved with audio and added to library',
+        description: `Video saved at ${exportSpeed}x speed (${formatTime(exportedDuration)})`,
       });
     } catch (error) {
       console.error('Export error:', error);
@@ -806,35 +827,57 @@ const VideoEditor = () => {
             </div>
             
             {/* Control buttons */}
-            <div className="flex items-center justify-center gap-2">
-              <Button variant="ghost" size="icon" onClick={toggleMute}>
-                {videoState.isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
-              </Button>
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Button variant="ghost" size="icon" onClick={toggleMute}>
+                  {videoState.isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+                </Button>
+                
+                <Slider
+                  value={[videoState.volume]}
+                  min={0}
+                  max={1}
+                  step={0.1}
+                  onValueChange={(v) => setVolume(v[0])}
+                  className="w-20"
+                />
+              </div>
               
-              <Slider
-                value={[videoState.volume]}
-                min={0}
-                max={1}
-                step={0.1}
-                onValueChange={(v) => setVolume(v[0])}
-                className="w-20"
-              />
+              <div className="flex items-center gap-2">
+                <Button variant="ghost" size="icon" onClick={skipBack}>
+                  <SkipBack className="w-5 h-5" />
+                </Button>
+                
+                <Button size="icon" onClick={togglePlay} className="w-12 h-12 rounded-full">
+                  {videoState.isPlaying ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6 ml-0.5" />}
+                </Button>
+                
+                <Button variant="ghost" size="icon" onClick={skipForward}>
+                  <SkipForward className="w-5 h-5" />
+                </Button>
+              </div>
               
-              <Button variant="ghost" size="icon" onClick={skipBack}>
-                <SkipBack className="w-5 h-5" />
-              </Button>
-              
-              <Button size="icon" onClick={togglePlay} className="w-12 h-12 rounded-full">
-                {videoState.isPlaying ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6 ml-0.5" />}
-              </Button>
-              
-              <Button variant="ghost" size="icon" onClick={skipForward}>
-                <SkipForward className="w-5 h-5" />
-              </Button>
-              
-              <Button variant="ghost" size="icon" onClick={toggleFullscreen}>
-                {isFullscreen ? <Minimize className="w-5 h-5" /> : <Maximize className="w-5 h-5" />}
-              </Button>
+              <div className="flex items-center gap-2">
+                {/* Playback speed selector */}
+                <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-secondary/50">
+                  <Gauge className="w-4 h-4 text-muted-foreground" />
+                  <select
+                    value={playbackSpeed}
+                    onChange={(e) => setPlaybackSpeed(parseFloat(e.target.value))}
+                    className="bg-transparent text-sm font-medium text-foreground outline-none cursor-pointer"
+                  >
+                    {PLAYBACK_SPEEDS.map((speed) => (
+                      <option key={speed} value={speed}>
+                        {speed}x
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                
+                <Button variant="ghost" size="icon" onClick={toggleFullscreen}>
+                  {isFullscreen ? <Minimize className="w-5 h-5" /> : <Maximize className="w-5 h-5" />}
+                </Button>
+              </div>
             </div>
           </div>
         </div>
@@ -842,17 +885,21 @@ const VideoEditor = () => {
         {/* Sidebar */}
         <div className="w-80 border-l border-border bg-card overflow-hidden flex flex-col shrink-0">
           <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
-            <TabsList className="grid grid-cols-3 m-3 shrink-0">
-              <TabsTrigger value="trim" className="gap-1">
-                <Scissors className="w-4 h-4" />
+            <TabsList className="grid grid-cols-4 m-3 shrink-0">
+              <TabsTrigger value="trim" className="gap-1 text-xs px-2">
+                <Scissors className="w-3.5 h-3.5" />
                 Trim
               </TabsTrigger>
-              <TabsTrigger value="filters" className="gap-1">
-                <Sliders className="w-4 h-4" />
+              <TabsTrigger value="speed" className="gap-1 text-xs px-2">
+                <Gauge className="w-3.5 h-3.5" />
+                Speed
+              </TabsTrigger>
+              <TabsTrigger value="filters" className="gap-1 text-xs px-2">
+                <Sliders className="w-3.5 h-3.5" />
                 Filters
               </TabsTrigger>
-              <TabsTrigger value="text" className="gap-1">
-                <Type className="w-4 h-4" />
+              <TabsTrigger value="text" className="gap-1 text-xs px-2">
+                <Type className="w-3.5 h-3.5" />
                 Text
               </TabsTrigger>
             </TabsList>
@@ -911,6 +958,55 @@ const VideoEditor = () => {
                   >
                     Set End
                   </Button>
+                </div>
+              </TabsContent>
+
+              {/* Speed Tab */}
+              <TabsContent value="speed" className="p-4 space-y-4 mt-0">
+                <div className="space-y-3">
+                  <Label className="text-sm font-medium">Export Speed</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Speed up the exported video. Higher speeds reduce duration and file size.
+                  </p>
+                  
+                  <div className="grid grid-cols-2 gap-2">
+                    {EXPORT_SPEEDS.map((speed) => (
+                      <button
+                        key={speed.value}
+                        onClick={() => setExportSpeed(speed.value)}
+                        className={cn(
+                          "p-3 rounded-lg border text-sm font-medium transition-all",
+                          exportSpeed === speed.value
+                            ? "border-primary bg-primary/10 text-primary"
+                            : "border-border bg-secondary/30 text-muted-foreground hover:bg-secondary/50"
+                        )}
+                      >
+                        {speed.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-lg bg-secondary/30 space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Original Duration</span>
+                    <span className="font-medium text-foreground">
+                      {formatTime(trimState.endTime - trimState.startTime)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Export Duration</span>
+                    <span className="font-medium text-primary">
+                      {formatTime((trimState.endTime - trimState.startTime) / exportSpeed)}
+                    </span>
+                  </div>
+                  {exportSpeed > 1 && (
+                    <div className="pt-2 border-t border-border/50">
+                      <p className="text-xs text-muted-foreground">
+                        ⚡ Video will be {Math.round((1 - 1/exportSpeed) * 100)}% shorter
+                      </p>
+                    </div>
+                  )}
                 </div>
               </TabsContent>
               
